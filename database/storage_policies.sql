@@ -42,6 +42,7 @@ ON CONFLICT (id) DO UPDATE SET
 -- Policies for 'uploaded-cvs'
 -- First path segment MUST equal auth.uid()::text
 -- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "uploaded_cvs_storage_select_own" ON storage.objects;
 CREATE POLICY "uploaded_cvs_storage_select_own"
     ON storage.objects FOR SELECT
     TO authenticated
@@ -50,6 +51,7 @@ CREATE POLICY "uploaded_cvs_storage_select_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "uploaded_cvs_storage_insert_own" ON storage.objects;
 CREATE POLICY "uploaded_cvs_storage_insert_own"
     ON storage.objects FOR INSERT
     TO authenticated
@@ -58,6 +60,7 @@ CREATE POLICY "uploaded_cvs_storage_insert_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "uploaded_cvs_storage_update_own" ON storage.objects;
 CREATE POLICY "uploaded_cvs_storage_update_own"
     ON storage.objects FOR UPDATE
     TO authenticated
@@ -70,6 +73,7 @@ CREATE POLICY "uploaded_cvs_storage_update_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "uploaded_cvs_storage_delete_own" ON storage.objects;
 CREATE POLICY "uploaded_cvs_storage_delete_own"
     ON storage.objects FOR DELETE
     TO authenticated
@@ -82,6 +86,7 @@ CREATE POLICY "uploaded_cvs_storage_delete_own"
 -- Policies for 'generated-documents'
 -- First path segment MUST equal auth.uid()::text
 -- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "generated_documents_storage_select_own" ON storage.objects;
 CREATE POLICY "generated_documents_storage_select_own"
     ON storage.objects FOR SELECT
     TO authenticated
@@ -90,6 +95,7 @@ CREATE POLICY "generated_documents_storage_select_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "generated_documents_storage_insert_own" ON storage.objects;
 CREATE POLICY "generated_documents_storage_insert_own"
     ON storage.objects FOR INSERT
     TO authenticated
@@ -98,6 +104,7 @@ CREATE POLICY "generated_documents_storage_insert_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "generated_documents_storage_update_own" ON storage.objects;
 CREATE POLICY "generated_documents_storage_update_own"
     ON storage.objects FOR UPDATE
     TO authenticated
@@ -110,6 +117,7 @@ CREATE POLICY "generated_documents_storage_update_own"
         AND (storage.foldername(name))[1] = auth.uid()::text
     );
 
+DROP POLICY IF EXISTS "generated_documents_storage_delete_own" ON storage.objects;
 CREATE POLICY "generated_documents_storage_delete_own"
     ON storage.objects FOR DELETE
     TO authenticated

@@ -37,6 +37,9 @@ function initRegisterPage() {
   const submitBtn = document.getElementById('register-submit');
   let submitting = false;
 
+  // Pre-warm public Supabase config in background while user completes form
+  getSupabaseClient().catch(() => {});
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (submitting) return;
@@ -116,6 +119,12 @@ function initRegisterPage() {
           showAlert(
             alertBox,
             'An account with this email address already exists. Please sign in or reset your password.',
+            'error'
+          );
+        } else if (error.status === 429 || msg.includes('rate limit')) {
+          showAlert(
+            alertBox,
+            'Too many verification emails were requested recently. Please wait a few minutes before trying again.',
             'error'
           );
         } else {
@@ -226,9 +235,14 @@ async function initVerifyEmailPage() {
         );
         statusHeading.textContent = 'Verify your email address';
       }
-    } else if (code) {
+    }
+
+    let { data: sessionData } = await supabase.auth.getSession();
+    let session = sessionData && sessionData.session;
+
+    if (!session && code) {
       statusHeading.textContent = 'Verifying your email...';
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) {
         showAlert(
           alertBox,
@@ -236,11 +250,11 @@ async function initVerifyEmailPage() {
           'error'
         );
         statusHeading.textContent = 'Verify your email address';
+      } else if (exchangeData && exchangeData.session) {
+        session = exchangeData.session;
       }
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData && sessionData.session;
     if (session) {
       const { data: userData } = await supabase.auth.getUser();
       const user = userData && userData.user;
@@ -459,6 +473,8 @@ function initForgotPasswordPage() {
   const submitBtn = form.querySelector('button[type="submit"]');
   let submitting = false;
 
+  getSupabaseClient().catch(() => {});
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (submitting) return;
@@ -559,16 +575,19 @@ async function initResetPasswordPage() {
       submitBtn.disabled = true;
       return;
     }
-  } else if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+  }
+
+  let { data: sessionData } = await supabase.auth.getSession();
+  if ((!sessionData || !sessionData.session) && code) {
+    const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       showAlert(alertBox, 'This password reset link has expired or was already used.', 'error');
       submitBtn.disabled = true;
       return;
     }
+    sessionData = exchangeData;
   }
 
-  const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData || !sessionData.session) {
     showAlert(
       alertBox,

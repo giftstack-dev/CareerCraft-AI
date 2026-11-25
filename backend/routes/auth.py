@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, g, request
 
 from services.supabase_service import get_secret_client
 from utils.auth import require_auth
-from utils.errors import ValidationError, success_response
+from utils.errors import ServiceUnavailableError, ValidationError, success_response
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -30,13 +30,21 @@ def get_public_auth_config():
 def _ensure_user_profile(user_id: str, email: str, full_name: str) -> dict:
     """Idempotently initialize and return the authenticated user's profile row."""
     client = get_secret_client()
-    existing = (
-        client.table("profiles")
-        .select("id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        existing = (
+            client.table("profiles")
+            .select("id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "PGRST205" in msg or "schema cache" in msg.lower() or "does not exist" in msg.lower():
+            raise ServiceUnavailableError(
+                "Database schema is not initialized yet. Execute the Supabase SQL schema and migrations first."
+            ) from exc
+        raise
     rows = existing.data or []
     if rows:
         profile = rows[0]

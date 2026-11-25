@@ -93,3 +93,44 @@ class GeminiService:
         raise ServiceUnavailableError(
             "The AI preparation service is temporarily unavailable. Please try again shortly."
         ) from last_exc
+
+    def verify_connectivity(self, run_generation_check: bool = True) -> dict[str, Any]:
+        """Execute a live Gemini API check (model lookup + optional minimal generation)."""
+        if not self._client:
+            return {
+                "connected": False,
+                "status": "unconfigured",
+                "model": self.model,
+                "generation_verified": False,
+            }
+
+        try:
+            self._client.models.get(model=self.model)
+            generation_verified = False
+            if run_generation_check:
+                resp = self._client.models.generate_content(
+                    model=self.model,
+                    contents="Reply with OK.",
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=4,
+                        temperature=0.0,
+                    ),
+                )
+                generation_verified = bool((resp.text or "").strip())
+
+            return {
+                "connected": True,
+                "status": "connected",
+                "model": self.model,
+                "generation_verified": generation_verified,
+            }
+        except Exception as exc:  # noqa: BLE001 - mask key/raw SDK internals
+            logger.warning("Gemini live connectivity check failed: %s", type(exc).__name__)
+            return {
+                "connected": False,
+                "status": "error",
+                "model": self.model,
+                "generation_verified": False,
+                "error_type": type(exc).__name__,
+            }
+

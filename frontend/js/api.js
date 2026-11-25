@@ -2,10 +2,13 @@
  * CareerCraft AI — REST API Fetch Client
  */
 
-import { APP_CONFIG } from './config.js';
+import { APP_CONFIG, loadRuntimeConfig } from './config.js';
 
 export async function apiRequest(path, options = {}) {
-  const url = `${APP_CONFIG.apiBaseUrl.replace(/\/$/, '')}${path}`;
+  await loadRuntimeConfig();
+
+  const base = APP_CONFIG.apiBaseUrl.replace(/\/$/, '');
+  const primaryUrl = `${base}${path}`;
   const headers = {
     Accept: 'application/json',
     ...(options.body && !(options.body instanceof FormData)
@@ -14,8 +17,8 @@ export async function apiRequest(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  try {
-    const response = await fetch(url, {
+  const executeFetch = async (targetUrl) => {
+    const response = await fetch(targetUrl, {
       ...options,
       headers,
     });
@@ -41,7 +44,19 @@ export async function apiRequest(path, options = {}) {
       message: payload ? payload.message : 'OK',
       error: null,
     };
+  };
+
+  try {
+    return await executeFetch(primaryUrl);
   } catch (networkError) {
+    // Fallback to same-origin /api proxy if direct cross-origin backend fetch failed (e.g. preview origin)
+    if (base && path.startsWith('/api/')) {
+      try {
+        return await executeFetch(path);
+      } catch {
+        // Fall through to standard network error envelope below
+      }
+    }
     return {
       success: false,
       status: 0,

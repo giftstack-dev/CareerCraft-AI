@@ -8,6 +8,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from unittest.mock import patch
+
 try:
     from app import create_app
     from config import Config
@@ -30,6 +32,23 @@ class TestApiSkeleton(unittest.TestCase):
         self.assertTrue(body["success"])
         self.assertEqual(body["data"]["status"], "ok")
         self.assertEqual(resp.headers.get("X-Content-Type-Options"), "nosniff")
+
+    def test_connectivity_endpoint_reports_live_results_without_secrets(self) -> None:
+        mock_live = {
+            "overall_status": "degraded",
+            "supabase_auth": {"connected": True, "status": "connected"},
+            "supabase_jwks": {"connected": True, "status": "connected", "key_count": 1},
+            "supabase_database": {"connected": False, "status": "schema_not_initialized", "schema_ready": False},
+            "gemini_api": {"connected": True, "status": "connected", "model": "gemini-2.5-flash", "generation_verified": True},
+        }
+        with patch("routes.dashboard.run_live_connectivity_checks", return_value=mock_live):
+            resp = self.client.get("/api/health/connectivity")
+            self.assertEqual(resp.status_code, 200)
+            body = resp.get_json()
+            self.assertTrue(body["success"])
+            self.assertEqual(body["data"]["status"], "degraded")
+            self.assertEqual(body["data"]["connectivity"]["supabase_database"]["status"], "schema_not_initialized")
+            self.assertTrue(body["data"]["connectivity"]["gemini_api"]["generation_verified"])
 
     def test_protected_endpoints_reject_unauthenticated_requests(self) -> None:
         protected_routes = [

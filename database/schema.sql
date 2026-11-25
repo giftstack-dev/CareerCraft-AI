@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;
 CREATE TRIGGER trg_profiles_updated_at
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS public.career_experience (
 
 CREATE INDEX IF NOT EXISTS idx_career_experience_user_id ON public.career_experience(user_id);
 
+DROP TRIGGER IF EXISTS trg_career_experience_updated_at ON public.career_experience;
 CREATE TRIGGER trg_career_experience_updated_at
     BEFORE UPDATE ON public.career_experience
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -118,6 +120,7 @@ CREATE TABLE IF NOT EXISTS public.education (
 
 CREATE INDEX IF NOT EXISTS idx_education_user_id ON public.education(user_id);
 
+DROP TRIGGER IF EXISTS trg_education_updated_at ON public.education;
 CREATE TRIGGER trg_education_updated_at
     BEFORE UPDATE ON public.education
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -139,6 +142,7 @@ CREATE TABLE IF NOT EXISTS public.skills (
 
 CREATE INDEX IF NOT EXISTS idx_skills_user_id ON public.skills(user_id);
 
+DROP TRIGGER IF EXISTS trg_skills_updated_at ON public.skills;
 CREATE TRIGGER trg_skills_updated_at
     BEFORE UPDATE ON public.skills
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -160,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
 
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON public.projects(user_id);
 
+DROP TRIGGER IF EXISTS trg_projects_updated_at ON public.projects;
 CREATE TRIGGER trg_projects_updated_at
     BEFORE UPDATE ON public.projects
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -180,6 +185,7 @@ CREATE TABLE IF NOT EXISTS public.certifications (
 
 CREATE INDEX IF NOT EXISTS idx_certifications_user_id ON public.certifications(user_id);
 
+DROP TRIGGER IF EXISTS trg_certifications_updated_at ON public.certifications;
 CREATE TRIGGER trg_certifications_updated_at
     BEFORE UPDATE ON public.certifications
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -211,6 +217,7 @@ CREATE TABLE IF NOT EXISTS public.uploaded_cvs (
 
 CREATE INDEX IF NOT EXISTS idx_uploaded_cvs_user_id ON public.uploaded_cvs(user_id);
 
+DROP TRIGGER IF EXISTS trg_uploaded_cvs_updated_at ON public.uploaded_cvs;
 CREATE TRIGGER trg_uploaded_cvs_updated_at
     BEFORE UPDATE ON public.uploaded_cvs
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -234,6 +241,7 @@ CREATE TABLE IF NOT EXISTS public.job_opportunities (
 
 CREATE INDEX IF NOT EXISTS idx_job_opportunities_user_id ON public.job_opportunities(user_id);
 
+DROP TRIGGER IF EXISTS trg_job_opportunities_updated_at ON public.job_opportunities;
 CREATE TRIGGER trg_job_opportunities_updated_at
     BEFORE UPDATE ON public.job_opportunities
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -262,6 +270,7 @@ CREATE TABLE IF NOT EXISTS public.job_analyses (
 CREATE INDEX IF NOT EXISTS idx_job_analyses_user_id ON public.job_analyses(user_id);
 CREATE INDEX IF NOT EXISTS idx_job_analyses_job_id ON public.job_analyses(job_opportunity_id);
 
+DROP TRIGGER IF EXISTS trg_job_analyses_updated_at ON public.job_analyses;
 CREATE TRIGGER trg_job_analyses_updated_at
     BEFORE UPDATE ON public.job_analyses
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -296,12 +305,13 @@ CREATE TABLE IF NOT EXISTS public.applications (
     CONSTRAINT fk_applications_opportunity_owner
         FOREIGN KEY (job_opportunity_id, user_id)
         REFERENCES public.job_opportunities(id, user_id)
-        ON DELETE SET NULL
+        ON DELETE SET NULL (job_opportunity_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_applications_user_id ON public.applications(user_id);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON public.applications(user_id, status);
 
+DROP TRIGGER IF EXISTS trg_applications_updated_at ON public.applications;
 CREATE TRIGGER trg_applications_updated_at
     BEFORE UPDATE ON public.applications
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -347,16 +357,17 @@ CREATE TABLE IF NOT EXISTS public.generated_documents (
     CONSTRAINT fk_documents_opportunity_owner
         FOREIGN KEY (job_opportunity_id, user_id)
         REFERENCES public.job_opportunities(id, user_id)
-        ON DELETE SET NULL,
+        ON DELETE SET NULL (job_opportunity_id),
     CONSTRAINT fk_documents_application_owner
         FOREIGN KEY (application_id, user_id)
         REFERENCES public.applications(id, user_id)
-        ON DELETE SET NULL
+        ON DELETE SET NULL (application_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_generated_documents_user_id ON public.generated_documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_generated_documents_type ON public.generated_documents(user_id, document_type);
 
+DROP TRIGGER IF EXISTS trg_generated_documents_updated_at ON public.generated_documents;
 CREATE TRIGGER trg_generated_documents_updated_at
     BEFORE UPDATE ON public.generated_documents
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -438,6 +449,7 @@ CREATE TABLE IF NOT EXISTS public.interview_sessions (
 CREATE INDEX IF NOT EXISTS idx_interview_sessions_user_id ON public.interview_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_interview_sessions_job_id ON public.interview_sessions(job_opportunity_id);
 
+DROP TRIGGER IF EXISTS trg_interview_sessions_updated_at ON public.interview_sessions;
 CREATE TRIGGER trg_interview_sessions_updated_at
     BEFORE UPDATE ON public.interview_sessions
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
