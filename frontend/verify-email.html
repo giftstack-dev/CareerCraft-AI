@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify Email — CareerCraft AI</title>
+    <meta name="description" content="Verify your email address to activate your CareerCraft AI account." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/landing.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a href="/index.html" class="brand-link" aria-label="CareerCraft AI Home">
+          <svg viewBox="0 0 40 40" width="32" height="32" fill="none" aria-hidden="true">
+            <rect width="40" height="40" rx="10" fill="#0F172A" />
+            <path d="M12 10.5C12 9.67157 12.6716 9 13.5 9H22.25L28 14.75V29.5C28 30.3284 27.3284 31 26.5 31H13.5C12.6716 31 12 30.3284 12 29.5V10.5Z" stroke="#F8FAFC" stroke-width="1.75" stroke-linejoin="round" />
+            <path d="M22 9V15H28" stroke="#94A3B8" stroke-width="1.5" stroke-linejoin="round" />
+            <path d="M15.5 23.5L18.5 26L24.5 19" stroke="#2563EB" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M24.5 18.5V22M24.5 18.5H21" stroke="#60A5FA" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>CareerCraft AI</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <a href="/features.html" class="nav-link">Features</a>
+          <a href="/how-it-works.html" class="nav-link">How It Works</a>
+          <a href="/about.html" class="nav-link">About</a>
+          <a href="/free-access.html" class="nav-link">Free Access</a>
+          <a href="/login.html" class="nav-link">Login</a>
+        </nav>
+        <div class="header-actions">
+          <a href="/register.html" class="btn btn-primary">Get Started</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content" class="auth-main">
+      <section id="verify-email-section" class="auth-card" aria-labelledby="verify-heading">
+        <h1 id="verify-heading" class="auth-title">Verify your email address</h1>
+        <p id="verify-subtitle" class="auth-subtitle">
+          A verification link has been sent to your email address. Open the link in your inbox to unlock onboarding and your career workspace.
+        </p>
+
+        <div id="verify-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+        <form id="resend-form" class="form-stack" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="resend-email">Email address</label>
+            <input id="resend-email" name="email" type="email" class="form-input" autocomplete="email" required aria-describedby="resend-email-error" />
+            <span id="resend-email-error" class="form-error" hidden></span>
+          </div>
+
+          <button id="resend-submit" type="submit" class="btn btn-secondary btn-full">
+            Resend Verification Email
+          </button>
+        </form>
+
+        <div class="auth-footer-links">
+          <a href="/login.html">Back to Login</a>
+          <a href="/register.html">Register with a different email</a>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/js/utils.js"></script>
+    <script type="module" src="/js/auth.js"></script>
+  </body>
+</html>

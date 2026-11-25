@@ -13,7 +13,7 @@ CareerCraft AI separates:
 
 ## 1. Supabase Production Configuration
 1. Create a production Supabase project in your target region.
-2. Execute `database/schema.sql`, `database/migrations/001_initial_schema.sql`, `database/rls_policies.sql`, and `database/storage_policies.sql` in the SQL Editor.
+2. Execute `database/schema.sql`, `database/migrations/001_initial_schema.sql`, `database/migrations/002_auth_profile_sync.sql`, `database/rls_policies.sql`, and `database/storage_policies.sql` in the SQL Editor.
 3. Verify in **Storage → Buckets** that `uploaded-cvs` and `generated-documents` exist and are marked **Private** (`public = false`).
 4. Under **Authentication → Providers → Email**, keep **Confirm email** enabled.
 5. Configure a reliable custom SMTP provider so verification and recovery emails are delivered consistently.
@@ -40,8 +40,9 @@ Set all required production environment variables on the backend host:
 - `FLASK_ENV=production`
 - `FLASK_SECRET_KEY=<64-char random hex>`
 - `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SECRET_KEY`
+- `SUPABASE_JWKS_URL`
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
 - `FRONTEND_URL=https://your-frontend-domain`
@@ -52,10 +53,10 @@ Verify `GET https://your-backend-domain/api/health` returns `200 OK` with `supab
 ---
 
 ## 4. Deploying the Frontend
-1. Update `frontend/js/config.js` (or inject `window.__CAREERCRAFT_CONFIG__`) with only the three public values:
+1. Provide ONLY the three public values to the frontend build/runtime (`runtime-config.js` or `GET /api/auth/config`):
    - `apiBaseUrl`: `https://your-backend-domain`
    - `supabaseUrl`: `https://your-project.supabase.co`
-   - `supabaseAnonKey`: your public Supabase anon key
+   - `supabasePublishableKey`: your public Supabase publishable key
 2. Deploy `frontend/` (or `npm run build` output in `dist/`) to HTTPS static hosting (Cloudflare Pages, Netlify, Vercel static, or Nginx).
 
 ---
@@ -63,7 +64,7 @@ Verify `GET https://your-backend-domain/api/health` returns `200 OK` with `supab
 ## 5. Production Security Checklist
 - [ ] HTTPS enforced for both frontend and backend.
 - [ ] `ALLOWED_ORIGINS` restricted strictly to production frontend origin(s) — never `*`.
-- [ ] `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, and `FLASK_SECRET_KEY` absent from frontend files and Git history.
+- [ ] `SUPABASE_SECRET_KEY`, `GEMINI_API_KEY`, and `FLASK_SECRET_KEY` absent from frontend files and Git history.
 - [ ] Row Level Security enabled on all 15 PostgreSQL tables.
 - [ ] Storage buckets `uploaded-cvs` and `generated-documents` confirmed private.
 - [ ] Email verification and password recovery redirect URLs tested end-to-end.

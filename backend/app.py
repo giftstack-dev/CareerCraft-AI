@@ -11,6 +11,7 @@ from werkzeug.exceptions import HTTPException
 from config import Config
 from routes.account import account_bp
 from routes.applications import applications_bp
+from routes.auth import auth_bp
 from routes.cv import cv_bp
 from routes.dashboard import dashboard_bp
 from routes.documents import documents_bp
@@ -51,6 +52,7 @@ def create_app(config_override: Config | None = None) -> Flask:
     )
 
     # Register modular REST API Blueprints
+    app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(profile_bp)

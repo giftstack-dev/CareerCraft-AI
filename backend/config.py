@@ -35,12 +35,14 @@ class Config:
         default_factory=lambda: os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
     )
     SUPABASE_URL: str = field(default_factory=lambda: os.getenv("SUPABASE_URL", "").strip())
-    SUPABASE_ANON_KEY: str = field(default_factory=lambda: os.getenv("SUPABASE_ANON_KEY", "").strip())
-    SUPABASE_SERVICE_ROLE_KEY: str = field(
-        default_factory=lambda: os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    SUPABASE_PUBLISHABLE_KEY: str = field(
+        default_factory=lambda: os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
     )
-    SUPABASE_JWT_SECRET: str = field(
-        default_factory=lambda: os.getenv("SUPABASE_JWT_SECRET", "").strip()
+    SUPABASE_SECRET_KEY: str = field(
+        default_factory=lambda: os.getenv("SUPABASE_SECRET_KEY", "").strip()
+    )
+    SUPABASE_JWKS_URL: str = field(
+        default_factory=lambda: os.getenv("SUPABASE_JWKS_URL", "").strip()
     )
     GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", "").strip())
     GEMINI_MODEL: str = field(
@@ -77,14 +79,29 @@ class Config:
         return self.FLASK_ENV.lower() == "production"
 
     @property
-    def supabase_configured(self) -> bool:
+    def resolved_jwks_url(self) -> str:
+        if self.SUPABASE_JWKS_URL and not self.SUPABASE_JWKS_URL.startswith("your_"):
+            return self.SUPABASE_JWKS_URL
+        if self.SUPABASE_URL and not self.SUPABASE_URL.startswith("your_"):
+            return f"{self.SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
+        return ""
+
+    @property
+    def supabase_public_configured(self) -> bool:
         return bool(
             self.SUPABASE_URL
             and not self.SUPABASE_URL.startswith("your_")
-            and self.SUPABASE_ANON_KEY
-            and not self.SUPABASE_ANON_KEY.startswith("your_")
-            and self.SUPABASE_SERVICE_ROLE_KEY
-            and self.SUPABASE_SERVICE_ROLE_KEY != "backend_only_secret"
+            and self.SUPABASE_PUBLISHABLE_KEY
+            and not self.SUPABASE_PUBLISHABLE_KEY.startswith("your_")
+        )
+
+    @property
+    def supabase_configured(self) -> bool:
+        return bool(
+            self.supabase_public_configured
+            and self.SUPABASE_SECRET_KEY
+            and self.SUPABASE_SECRET_KEY != "backend_only_secret"
+            and self.resolved_jwks_url
         )
 
     @property

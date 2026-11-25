@@ -28,23 +28,29 @@ careercraft-ai/
 │   ├── how-it-works.html      # 6-step workflow overview
 │   ├── about.html             # Product mission & strict non-fabrication rules
 │   ├── free-access.html       # Free initial release & fair safeguards
-│   ├── login.html             # Sign in page (Phase 2 Supabase Auth target)
-│   ├── register.html          # Registration page (Phase 2 Supabase Auth target)
-│   ├── forgot-password.html   # Password recovery page
+│   ├── login.html             # Sign in page (Supabase Auth)
+│   ├── register.html          # Registration page (Supabase Auth)
+│   ├── verify-email.html      # Email verification & resend handler
+│   ├── forgot-password.html   # Password recovery request
+│   ├── reset-password.html    # Password reset completion
+│   ├── onboarding.html        # Protected onboarding page
+│   ├── dashboard.html         # Protected dashboard page
+│   ├── access-denied.html     # Access denied system page
+│   ├── session-expired.html   # Session expired system page
 │   ├── privacy.html           # Privacy Policy (draft for legal review)
 │   ├── terms.html             # Terms of Use (draft for legal review)
 │   ├── 404.html               # Not Found system page
-│   ├── css/                   # variables.css, global.css, components.css, landing.css, responsive.css
-│   ├── js/                    # config.js, api.js, auth.js, utils.js
+│   ├── css/                   # variables.css, global.css, components.css, landing.css, dashboard.css, responsive.css
+│   ├── js/                    # config.js, supabase-client.js, route-guard.js, api.js, auth.js, onboarding.js, dashboard.js, utils.js
 │   └── assets/                # logo.svg
 ├── backend/                   # Python Flask REST API
 │   ├── app.py                 # Application factory, CORS, security headers, Blueprint registration
 │   ├── config.py              # Environment configuration & validation
 │   ├── requirements.txt       # Python dependencies
-│   ├── routes/                # Modular Flask Blueprints
+│   ├── routes/                # Modular Flask Blueprints (including auth.py)
 │   ├── services/              # supabase_service.py, gemini_service.py, usage_service.py
-│   ├── utils/                 # auth.py, errors.py, security.py, validators.py
-│   └── tests/                 # Automated unit & API skeleton tests
+│   ├── utils/                 # auth.py (JWKS), errors.py, security.py, validators.py
+│   └── tests/                 # Automated unit & API tests
 ├── database/                  # Supabase PostgreSQL SQL definitions
 │   ├── schema.sql             # All 15 tables, composite FKs, triggers, indexes
 │   ├── migrations/            # Ordered SQL migration scripts
@@ -78,13 +84,14 @@ Edit `.env` with your real credentials:
 | `FLASK_ENV` | Mandatory | Backend | `development` locally, `production` when deployed |
 | `FLASK_SECRET_KEY` | Mandatory | Backend | Random 64-char hex string (`python3 -c "import secrets; print(secrets.token_hex(32))"`) |
 | `SUPABASE_URL` | Mandatory | Public + Backend | Supabase Project URL (`https://<ref>.supabase.co`) |
-| `SUPABASE_ANON_KEY` | Mandatory | Public + Backend | Supabase public `anon` key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Mandatory | **Backend Only** | Supabase service-role key (never expose to browser) |
-| `SUPABASE_JWT_SECRET` | Optional | **Backend Only** | Optional HS256 JWT secret; if omitted, JWKS verification is used |
+| `SUPABASE_PUBLISHABLE_KEY` | Mandatory | Public + Backend | Supabase public publishable key (`sb_publishable_...`) |
+| `SUPABASE_SECRET_KEY` | Mandatory | **Backend Only** | Supabase secret server key (`sb_secret_...`, never expose to browser) |
+| `SUPABASE_JWKS_URL` | Mandatory | **Backend Only** | Supabase JWKS endpoint (`https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`) |
 | `GEMINI_API_KEY` | Mandatory | **Backend Only** | Google Gemini API key (never expose to browser) |
 | `GEMINI_MODEL` | Mandatory | Backend | Model ID (e.g. `gemini-2.5-flash`) |
 | `FRONTEND_URL` | Mandatory | Backend | URL where frontend is served (e.g. `http://localhost:3000`) |
 | `ALLOWED_ORIGINS` | Mandatory | Backend | Comma-separated CORS origins (e.g. `http://localhost:3000`) |
+| `BACKEND_API_URL` | Optional | Public Runtime | Flask backend URL for frontend API requests (default: `http://127.0.0.1:5000`) |
 | `MAX_UPLOAD_SIZE_MB` | Optional | Backend | Max CV upload size in MB (default: `10`) |
 | `AI_DAILY_REQUEST_LIMIT` | Optional | Backend | Daily AI calls per user (default: `30`) |
 | `AI_REQUEST_TIMEOUT` | Optional | Backend | Gemini request timeout in seconds (default: `45`) |
@@ -93,16 +100,19 @@ Edit `.env` with your real credentials:
 Run the SQL files in your Supabase **SQL Editor** in this exact order:
 1. `database/schema.sql`
 2. `database/migrations/001_initial_schema.sql`
-3. `database/rls_policies.sql`
-4. `database/storage_policies.sql`
+3. `database/migrations/002_auth_profile_sync.sql`
+4. `database/rls_policies.sql`
+5. `database/storage_policies.sql`
 
 ### 4. Supabase Authentication Configuration
 In **Supabase Dashboard → Authentication**:
 - Enable **Email** provider and require **Confirm email** (`Enable email confirmations`).
 - Configure an SMTP provider for production email verification & password recovery.
-- Add redirect URLs under **URL Configuration**:
+- Add redirect URLs under **URL Configuration** (both local and your deployed/AI Studio URL):
   - `http://localhost:3000/verify-email.html`
   - `http://localhost:3000/reset-password.html`
+  - `https://<your-app-domain>/verify-email.html`
+  - `https://<your-app-domain>/reset-password.html`
 
 ### 5. Backend Startup (Flask)
 ```bash
@@ -139,6 +149,6 @@ python3 -m unittest discover -s backend/tests -p "test_foundation.py" -v
 
 ## Development Roadmap Progress
 
-- **Phase 1 — Foundation:** Implemented (pending live Supabase/Gemini credentials and external Flask runtime verification).
-- **Phase 2 — Authentication:** Next phase after Phase 1 verification.
+- **Phase 1 — Foundation:** Implemented.
+- **Phase 2 — Authentication & Account Security:** Implemented (real Supabase Auth registration, email verification, resend, login, forgot/reset password, logout, JWKS verification, protected pages, profile initialization).
 - **Phases 3–10:** Scheduled sequentially per specification.

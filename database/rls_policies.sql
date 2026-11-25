@@ -379,7 +379,7 @@ CREATE POLICY "usage_records_select_own"
     USING (auth.uid() = user_id);
 
 -- Intentionally NO INSERT/UPDATE/DELETE policies for 'authenticated' or 'anon' roles.
--- Only backend Flask requests using SUPABASE_SERVICE_ROLE_KEY may record usage.
+-- Only backend Flask requests using SUPABASE_SECRET_KEY may record usage.
 
 -- ------------------------------------------------------------------------------
 -- 14. notifications (Users may read, mark as read, or delete; backend creates)

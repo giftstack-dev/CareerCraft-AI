@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Onboarding — CareerCraft AI</title>
+    <meta name="description" content="Complete your initial CareerCraft AI onboarding." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <h1 class="card-title">Verifying your session</h1>
+        <p class="card-text">Checking your verified CareerCraft AI credentials...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation">
+        <div>
+          <a href="/dashboard.html" class="sidebar-brand">
+            <svg viewBox="0 0 40 40" width="28" height="28" fill="none" aria-hidden="true">
+              <rect width="40" height="40" rx="10" fill="#1E293B" />
+              <path d="M12 10.5C12 9.67157 12.6716 9 13.5 9H22.25L28 14.75V29.5C28 30.3284 27.3284 31 26.5 31H13.5C12.6716 31 12 30.3284 12 29.5V10.5Z" stroke="#F8FAFC" stroke-width="1.75" stroke-linejoin="round" />
+              <path d="M15.5 23.5L18.5 26L24.5 19" stroke="#2563EB" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>CareerCraft AI</span>
+          </a>
+          <nav class="sidebar-nav">
+            <a href="/onboarding.html" class="sidebar-link" aria-current="page">Onboarding</a>
+            <a href="/dashboard.html" class="sidebar-link">Dashboard</a>
+          </nav>
+        </div>
+
+        <div class="sidebar-footer">
+          <button type="button" class="sidebar-logout-btn" data-logout-btn>Logout</button>
+        </div>
+      </aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Account Onboarding</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Verified User</span>
+            <button type="button" class="btn btn-secondary" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div class="card" style="max-width: 680px;">
+            <p class="section-kicker">Step 1 of Onboarding &middot; Verified Account Initialised</p>
+            <h2 class="section-title" style="font-size: var(--text-2xl);">Confirm your account identity</h2>
+            <p class="card-text" style="margin-bottom: var(--space-6);">
+              Your email has been verified and your profile record is active in Supabase. Confirm your display name below or skip to your dashboard. Full multi-step career profile onboarding (education, experience, skills, projects, and CV upload) will open in Phase 3.
+            </p>
+
+            <div id="onboarding-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+            <form id="onboarding-form" class="form-stack" novalidate>
+              <div class="form-group">
+                <label class="form-label" for="onboarding-full-name">Full name</label>
+                <input id="onboarding-full-name" type="text" class="form-input" required aria-describedby="onboarding-name-error" />
+                <span id="onboarding-name-error" class="form-error" hidden></span>
+              </div>
+
+              <div class="detail-list">
+                <div>
+                  <div class="detail-item-label">Verified Email</div>
+                  <div id="onboarding-email" class="detail-item-value">—</div>
+                </div>
+                <div>
+                  <div class="detail-item-label">Current Onboarding Status</div>
+                  <div id="onboarding-status-text" class="detail-item-value">—</div>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4);">
+                <button id="complete-onboarding-btn" type="submit" class="btn btn-primary">
+                  Save &amp; Continue to Dashboard
+                </button>
+                <button id="skip-onboarding-btn" type="button" class="btn btn-secondary">
+                  Skip for Now
+                </button>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/onboarding.js"></script>
+  </body>
+</html>
