@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import date
@@ -15,13 +16,14 @@ from services.cv_parser_service import (
     parse_cv_text_with_gemini,
 )
 from services.profile_service import handle_supabase_error, record_notification
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
 from utils.errors import NotFoundError, ServiceUnavailableError, ValidationError, success_response
 from utils.security import sanitize_filename, validate_user_storage_path
 from utils.validators import is_safe_http_url, is_valid_uuid
 
+logger = logging.getLogger(__name__)
 cv_bp = Blueprint("cv", __name__, url_prefix="/api/cv")
 CV_BUCKET = "uploaded-cvs"
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -59,7 +61,7 @@ def list_cvs():
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("uploaded_cvs")
             .select("id, original_filename, mime_type, file_size_bytes, parsing_status, confirmation_status, extracted_data, created_at, updated_at")
             .eq("user_id", user_id)
@@ -79,7 +81,7 @@ def get_cv(cv_id: str):
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("uploaded_cvs")
             .select("*")
             .eq("id", cv_id)
@@ -119,7 +121,7 @@ def upload_cv():
     if not validate_user_storage_path(storage_path, user_id):
         raise ValidationError("Invalid storage path.")
 
-    client = get_secret_client()
+    client = get_user_client()
     try:
         client.storage.from_(CV_BUCKET).upload(
             path=storage_path,
@@ -176,7 +178,7 @@ def parse_cv():
         raise ValidationError("Valid cv_id is required.")
 
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         res = (
             client.table("uploaded_cvs")
@@ -195,8 +197,12 @@ def parse_cv():
     cv_row = res.data[0]
     enforce_daily_ai_quota(user_id)
 
+    storage_path = str(cv_row.get("storage_path") or "")
+    if not validate_user_storage_path(storage_path, user_id):
+        raise ValidationError("Invalid stored CV path.")
+
     try:
-        file_bytes = client.storage.from_(CV_BUCKET).download(cv_row["storage_path"])
+        file_bytes = client.storage.from_(CV_BUCKET).download(storage_path)
     except Exception as exc:  # noqa: BLE001
         raise ServiceUnavailableError("Could not download stored CV file from private storage.") from exc
 
@@ -271,7 +277,7 @@ def confirm_cv_merge():
         raise ValidationError("Valid cv_id is required.")
 
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         cv_res = client.table("uploaded_cvs").select("*").eq("id", cv_id).eq("user_id", user_id).limit(1).execute()
         if not cv_res.data:
@@ -436,16 +442,17 @@ def delete_cv(cv_id: str):
     if not is_valid_uuid(cv_id):
         raise ValidationError("Invalid CV ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         res = client.table("uploaded_cvs").select("id, storage_path").eq("id", cv_id).eq("user_id", user_id).limit(1).execute()
         if not res.data:
             raise NotFoundError("Uploaded CV not found.")
-        storage_path = res.data[0]["storage_path"]
-        try:
-            client.storage.from_(CV_BUCKET).remove([storage_path])
-        except Exception:  # noqa: BLE001
-            pass
+        storage_path = str(res.data[0].get("storage_path") or "")
+        if validate_user_storage_path(storage_path, user_id):
+            try:
+                client.storage.from_(CV_BUCKET).remove([storage_path])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Storage deletion skipped/failed for CV %s: %s", cv_id, type(exc).__name__)
         client.table("uploaded_cvs").delete().eq("id", cv_id).eq("user_id", user_id).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)

@@ -158,11 +158,17 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Delete',
-              onClick: async () => {
-                const delRes = await authApiRequest(session, `/api/applications/${app.id}`, { method: 'DELETE' });
-                if (!delRes.success) return showAlert(alertBox, delRes.message, 'error');
-                if (editingId === app.id) resetForm();
-                await loadApplications();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const delRes = await authApiRequest(session, `/api/applications/${app.id}`, { method: 'DELETE' });
+                  if (!delRes.success) return showAlert(alertBox, delRes.message, 'error');
+                  if (editingId === app.id) resetForm();
+                  await loadApplications();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ]),
@@ -171,34 +177,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  let submitting = false;
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (submitting) return;
     clearAlert(alertBox);
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
 
-    const selectedDocIds = Array.from(docsCheckboxes.querySelectorAll('input[name="linked_doc_ids"]:checked')).map(
-      (chk) => chk.value
-    );
+    try {
+      const selectedDocIds = Array.from(docsCheckboxes.querySelectorAll('input[name="linked_doc_ids"]:checked')).map(
+        (chk) => chk.value
+      );
 
-    const payload = {
-      company_name: companyIn.value.trim(),
-      job_title: titleIn.value.trim(),
-      status: statusSel.value,
-      application_date: dateIn.value || null,
-      interview_date: interviewIn.value ? new Date(interviewIn.value).toISOString() : null,
-      follow_up_date: followupIn.value || null,
-      job_opportunity_id: jobSelect.value || null,
-      document_ids: selectedDocIds,
-      notes: notesIn.value.trim(),
-    };
+      const payload = {
+        company_name: companyIn.value.trim(),
+        job_title: titleIn.value.trim(),
+        status: statusSel.value,
+        application_date: dateIn.value || null,
+        interview_date: interviewIn.value ? new Date(interviewIn.value).toISOString() : null,
+        follow_up_date: followupIn.value || null,
+        job_opportunity_id: jobSelect.value || null,
+        document_ids: selectedDocIds,
+        notes: notesIn.value.trim(),
+      };
 
-    const url = editingId ? `/api/applications/${editingId}` : '/api/applications';
-    const method = editingId ? 'PUT' : 'POST';
-    const res = await authApiRequest(session, url, { method, body: JSON.stringify(payload) });
-    if (!res.success) return showAlert(alertBox, res.message, 'error');
+      const url = editingId ? `/api/applications/${editingId}` : '/api/applications';
+      const method = editingId ? 'PUT' : 'POST';
+      const res = await authApiRequest(session, url, { method, body: JSON.stringify(payload) });
+      if (!res.success) return showAlert(alertBox, res.message, 'error');
 
-    showAlert(alertBox, editingId ? 'Application record updated.' : 'Application record saved.', 'success');
-    resetForm();
-    await loadApplications();
+      showAlert(alertBox, editingId ? 'Application record updated.' : 'Application record saved.', 'success');
+      resetForm();
+      await loadApplications();
+    } finally {
+      submitting = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = editingId ? 'Save Changes' : 'Save Application';
+    }
   });
 
   cancelEditBtn.addEventListener('click', resetForm);

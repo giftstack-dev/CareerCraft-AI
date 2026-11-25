@@ -19,7 +19,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function loadUsage() {
     const res = await authApiRequest(session, '/api/usage', { method: 'GET' });
-    if (!res.success || !res.data) return;
+    if (!res.success || !res.data) {
+      document.getElementById('usage-reset-note').textContent = res.message || 'Unable to load daily AI usage.';
+      return;
+    }
 
     const { daily_limit, used_today, reset_schedule, recent_records } = res.data;
     document.getElementById('usage-count-badge').textContent = `${used_today} / ${daily_limit} today`;
@@ -51,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const list = document.getElementById('notifications-list');
     clearContainer(list);
     if (!res.success || !res.data) {
-      list.appendChild(el('p', { className: 'card-text', textContent: 'Unable to load notifications.' }));
+      list.appendChild(el('p', { className: 'card-text', textContent: res.message || 'Unable to load notifications.' }));
       return;
     }
 
@@ -74,9 +77,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-secondary btn-sm',
                 textContent: 'Mark Read',
-                onClick: async () => {
-                  await authApiRequest(session, `/api/notifications/${notif.id}/read`, { method: 'PUT' });
-                  await loadNotifications();
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const markRes = await authApiRequest(session, `/api/notifications/${notif.id}/read`, { method: 'PUT' });
+                    if (!markRes.success) return showAlert(alertBox, markRes.message || 'Could not mark notification read.', 'error');
+                    await loadNotifications();
+                  } finally {
+                    btn.disabled = false;
+                  }
                 },
               }),
         ])
@@ -84,13 +94,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  document.getElementById('mark-all-read-btn').addEventListener('click', async () => {
-    await authApiRequest(session, '/api/notifications/read-all', { method: 'POST' });
-    await loadNotifications();
+  const markAllBtn = document.getElementById('mark-all-read-btn');
+  markAllBtn.addEventListener('click', async () => {
+    if (markAllBtn.disabled) return;
+    markAllBtn.disabled = true;
+    try {
+      const res = await authApiRequest(session, '/api/notifications/read-all', { method: 'POST' });
+      if (!res.success) return showAlert(alertBox, res.message || 'Could not mark notifications read.', 'error');
+      await loadNotifications();
+    } finally {
+      markAllBtn.disabled = false;
+    }
   });
 
   document.getElementById('password-update-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btn = document.getElementById('password-update-btn');
+    if (btn.disabled) return;
     clearAlert(alertBox);
     const pw = document.getElementById('new-password-input').value;
     const confirm = document.getElementById('confirm-password-input').value;
@@ -100,36 +120,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (pw !== confirm) {
       return showAlert(alertBox, 'Passwords do not match.', 'error');
     }
-    const btn = document.getElementById('password-update-btn');
     btn.disabled = true;
-    const { error } = await supabase.auth.updateUser({ password: pw });
-    btn.disabled = false;
-    if (error) return showAlert(alertBox, error.message, 'error');
-    e.target.reset();
-    showAlert(alertBox, 'Password updated successfully.', 'success');
+    btn.textContent = 'Updating...';
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pw });
+      if (error) return showAlert(alertBox, error.message, 'error');
+      e.target.reset();
+      showAlert(alertBox, 'Password updated successfully.', 'success');
+    } catch {
+      showAlert(alertBox, 'Unable to update password right now. Please try again.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Update Password';
+    }
   });
 
   document.getElementById('delete-account-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btn = document.getElementById('delete-account-btn');
+    if (btn.disabled) return;
     clearAlert(alertBox);
     const confirmation = document.getElementById('delete-confirm-input').value.trim();
     if (confirmation !== 'DELETE') {
       return showAlert(alertBox, 'Please type DELETE in uppercase to confirm account deletion.', 'error');
     }
-    const btn = document.getElementById('delete-account-btn');
     btn.disabled = true;
     btn.textContent = 'Deleting Account...';
 
-    const res = await authApiRequest(session, '/api/account/delete', {
-      method: 'POST',
-      body: JSON.stringify({ confirmation }),
-    });
-    if (!res.success) {
+    try {
+      const res = await authApiRequest(session, '/api/account/delete', {
+        method: 'POST',
+        body: JSON.stringify({ confirmation }),
+      });
+      if (!res.success) {
+        btn.disabled = false;
+        btn.textContent = 'Permanently Delete Account';
+        return showAlert(alertBox, res.message || 'Account deletion failed.', 'error');
+      }
+      await signOutAndRedirect('/login.html');
+    } catch {
       btn.disabled = false;
       btn.textContent = 'Permanently Delete Account';
-      return showAlert(alertBox, res.message || 'Account deletion failed.', 'error');
+      showAlert(alertBox, 'Unable to delete account right now. Please try again.', 'error');
     }
-    await signOutAndRedirect('/login.html');
   });
 
   await Promise.all([loadUsage(), loadNotifications()]);

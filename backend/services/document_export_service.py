@@ -7,12 +7,14 @@ from typing import Any
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
 
 TEMPLATE_STYLES = {
@@ -50,14 +52,46 @@ TEMPLATE_STYLES = {
     },
 }
 
+_WINANSI_MAP = str.maketrans(
+    {
+        "\u2014": " - ",
+        "\u2013": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+        "\u00a0": " ",
+        "\u2022": "*",
+    }
+)
 
-def _escape_rl(text: str) -> str:
+
+def _normalize_pdf_text(text: Any) -> str:
+    """Keep text crisp and safe for ReportLab Type1 built-in fonts without broken glyphs."""
+    cleaned = str(text or "").translate(_WINANSI_MAP)
+    return cleaned.encode("latin-1", "replace").decode("latin-1")
+
+
+def _escape_rl(text: Any) -> str:
     return (
-        str(text or "")
+        _normalize_pdf_text(text)
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def _add_docx_bottom_border(paragraph, color_hex: str) -> None:
+    p_pr = paragraph._p.get_or_add_pPr()
+    p_bdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "8")
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), color_hex.lstrip("#"))
+    p_bdr.append(bottom)
+    p_pr.append(p_bdr)
 
 
 def render_document_pdf(document: dict[str, Any]) -> bytes:
@@ -74,7 +108,7 @@ def render_document_pdf(document: dict[str, Any]) -> bytes:
         rightMargin=0.72 * inch,
         topMargin=0.68 * inch,
         bottomMargin=0.68 * inch,
-        title=str(document.get("document_title") or "CareerCraft Document"),
+        title=_normalize_pdf_text(document.get("document_title") or "CareerCraft Document"),
     )
 
     base = getSampleStyleSheet()
@@ -109,6 +143,7 @@ def render_document_pdf(document: dict[str, Any]) -> bytes:
         textColor=navy_color,
         spaceBefore=10,
         spaceAfter=4,
+        keepWithNext=True,
     )
     item_heading = ParagraphStyle(
         "CCItem",
@@ -119,6 +154,7 @@ def render_document_pdf(document: dict[str, Any]) -> bytes:
         textColor=navy_color,
         spaceBefore=4,
         spaceAfter=2,
+        keepWithNext=True,
     )
     body_style = ParagraphStyle(
         "CCBody",
@@ -161,7 +197,7 @@ def render_document_pdf(document: dict[str, Any]) -> bytes:
 
     if content.get("summary"):
         story.append(Paragraph("PROFESSIONAL SUMMARY", section_heading))
-        story.append(Paragraph(_escape_rl(str(content["summary"])), body_style))
+        story.append(Paragraph(_escape_rl(content["summary"]).replace("\n", "<br/>"), body_style))
 
     sections = content.get("sections") or []
     for sec in sections:
@@ -176,28 +212,31 @@ def render_document_pdf(document: dict[str, Any]) -> bytes:
                     story.append(Paragraph(_escape_rl(cleaned).replace("\n", "<br/>"), body_style))
 
         for entry in sec.get("entries") or []:
+            entry_flow: list[Any] = []
             line_title = str(entry.get("title") or "").strip()
             line_meta = str(entry.get("meta") or "").strip()
-            combined = f"{line_title} — {line_meta}" if line_title and line_meta else (line_title or line_meta)
+            combined = f"{line_title} - {line_meta}" if line_title and line_meta else (line_title or line_meta)
             if combined:
-                story.append(Paragraph(_escape_rl(combined), item_heading))
+                entry_flow.append(Paragraph(_escape_rl(combined), item_heading))
             if entry.get("description"):
-                story.append(Paragraph(_escape_rl(str(entry["description"])), body_style))
-            for bullet in entry.get("bullets") or []:
-                b_txt = str(bullet or "").strip()
-                if b_txt:
-                    story.append(Paragraph(f"• {_escape_rl(b_txt)}", bullet_style))
+                entry_flow.append(Paragraph(_escape_rl(entry["description"]).replace("\n", "<br/>"), body_style))
+            bullets = [str(b or "").strip() for b in (entry.get("bullets") or []) if str(b or "").strip()]
+            if bullets:
+                entry_flow.append(Paragraph(f"* {_escape_rl(bullets[0])}", bullet_style))
+            if entry_flow:
+                story.append(KeepTogether(entry_flow))
+            for b_txt in bullets[1:]:
+                story.append(Paragraph(f"* {_escape_rl(b_txt)}", bullet_style))
 
         for bullet in sec.get("bullets") or []:
             b_txt = str(bullet or "").strip()
             if b_txt:
-                story.append(Paragraph(f"• {_escape_rl(b_txt)}", bullet_style))
+                story.append(Paragraph(f"* {_escape_rl(b_txt)}", bullet_style))
 
-    # Support letter/prose paragraphs if structured_content uses paragraphs[]
     for para in content.get("paragraphs") or []:
         p_txt = str(para or "").strip()
         if p_txt:
-            story.append(Paragraph(_escape_rl(p_txt), body_style))
+            story.append(Paragraph(_escape_rl(p_txt).replace("\n", "<br/>"), body_style))
             story.append(Spacer(1, 3))
 
     if content.get("closing"):
@@ -213,6 +252,7 @@ def render_document_docx(document: dict[str, Any]) -> bytes:
     template = document.get("template") or "classic_professional"
     style_cfg = TEMPLATE_STYLES.get(template, TEMPLATE_STYLES["classic_professional"])
     content = document.get("structured_content") or {}
+    font_name = style_cfg["docx_font"]
 
     word_doc = docx.Document()
     for sec in word_doc.sections:
@@ -222,7 +262,7 @@ def render_document_docx(document: dict[str, Any]) -> bytes:
         sec.right_margin = Inches(0.75)
 
     normal_style = word_doc.styles["Normal"]
-    normal_style.font.name = style_cfg["docx_font"]
+    normal_style.font.name = font_name
     normal_style.font.size = Pt(10.5)
 
     accent_rgb = RGBColor(*style_cfg["rgb"])
@@ -234,6 +274,7 @@ def render_document_docx(document: dict[str, Any]) -> bytes:
     title_p = word_doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     title_run = title_p.add_run(heading_text)
+    title_run.font.name = font_name
     title_run.bold = True
     title_run.font.size = Pt(17)
     title_run.font.color.rgb = accent_rgb
@@ -252,30 +293,41 @@ def render_document_docx(document: dict[str, Any]) -> bytes:
     if contact_parts:
         sub_p = word_doc.add_paragraph()
         sub_run = sub_p.add_run(" | ".join(contact_parts))
+        sub_run.font.name = font_name
         sub_run.font.size = Pt(9.5)
         sub_run.font.color.rgb = muted_rgb
+        _add_docx_bottom_border(sub_p, style_cfg["accent_hex"])
+    else:
+        _add_docx_bottom_border(title_p, style_cfg["accent_hex"])
 
-    if content.get("summary"):
+    def add_section_heading(text: str) -> None:
         h = word_doc.add_paragraph()
-        hr = h.add_run("PROFESSIONAL SUMMARY")
+        h.paragraph_format.keep_with_next = True
+        hr = h.add_run(text.upper())
+        hr.font.name = font_name
         hr.bold = True
         hr.font.size = Pt(11)
         hr.font.color.rgb = navy_rgb
-        word_doc.add_paragraph(str(content["summary"]))
+
+    def add_body_para(text: str) -> None:
+        p = word_doc.add_paragraph()
+        r = p.add_run(text)
+        r.font.name = font_name
+        r.font.size = Pt(10.5)
+
+    if content.get("summary"):
+        add_section_heading("PROFESSIONAL SUMMARY")
+        add_body_para(str(content["summary"]))
 
     for sec in content.get("sections") or []:
         sec_title = str(sec.get("heading") or "").strip()
         if sec_title:
-            h = word_doc.add_paragraph()
-            hr = h.add_run(sec_title.upper())
-            hr.bold = True
-            hr.font.size = Pt(11)
-            hr.font.color.rgb = navy_rgb
+            add_section_heading(sec_title)
 
         if sec.get("body"):
             for para in str(sec["body"]).split("\n\n"):
                 if para.strip():
-                    word_doc.add_paragraph(para.strip())
+                    add_body_para(para.strip())
 
         for entry in sec.get("entries") or []:
             line_title = str(entry.get("title") or "").strip()
@@ -283,25 +335,33 @@ def render_document_docx(document: dict[str, Any]) -> bytes:
             combined = f"{line_title} — {line_meta}" if line_title and line_meta else (line_title or line_meta)
             if combined:
                 ep = word_doc.add_paragraph()
+                ep.paragraph_format.keep_with_next = True
                 er = ep.add_run(combined)
+                er.font.name = font_name
                 er.bold = True
                 er.font.color.rgb = navy_rgb
             if entry.get("description"):
-                word_doc.add_paragraph(str(entry["description"]))
+                add_body_para(str(entry["description"]))
             for bullet in entry.get("bullets") or []:
-                if str(bullet or "").strip():
-                    word_doc.add_paragraph(str(bullet).strip(), style="List Bullet")
+                b_txt = str(bullet or "").strip()
+                if b_txt:
+                    bp = word_doc.add_paragraph(style="List Bullet")
+                    br = bp.add_run(b_txt)
+                    br.font.name = font_name
 
         for bullet in sec.get("bullets") or []:
-            if str(bullet or "").strip():
-                word_doc.add_paragraph(str(bullet).strip(), style="List Bullet")
+            b_txt = str(bullet or "").strip()
+            if b_txt:
+                bp = word_doc.add_paragraph(style="List Bullet")
+                br = bp.add_run(b_txt)
+                br.font.name = font_name
 
     for para in content.get("paragraphs") or []:
         if str(para or "").strip():
-            word_doc.add_paragraph(str(para).strip())
+            add_body_para(str(para).strip())
 
     if content.get("closing"):
-        word_doc.add_paragraph(str(content["closing"]))
+        add_body_para(str(content["closing"]))
 
     out = io.BytesIO()
     word_doc.save(out)

@@ -14,7 +14,7 @@ export async function authApiRequest(session, path, options = {}) {
   return apiRequest(path, { ...options, headers });
 }
 
-export async function downloadAuthenticatedBlob(session, path, fallbackFilename = 'document.pdf') {
+export async function downloadAuthenticatedBlob(session, path, fallbackFilename = 'document.pdf', timeoutMs = 65000) {
   await loadRuntimeConfig();
   const base = APP_CONFIG.apiBaseUrl.replace(/\/$/, '');
   const urls = base ? [`${base}${path}`, path] : [path];
@@ -23,15 +23,24 @@ export async function downloadAuthenticatedBlob(session, path, fallbackFilename 
   };
 
   let lastErr = null;
-  for (const url of urls) {
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const resp = await fetch(url, { method: 'GET', headers });
+      const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => null);
-        throw new Error(
+        const msg =
           (errBody && (errBody.message || (errBody.error && errBody.error.message))) ||
-            `Export failed (${resp.status}).`
-        );
+          `Export failed (${resp.status}).`;
+        const httpErr = new Error(msg);
+        // Never retry proxy URL for definitive 4xx client/permission/not-found errors
+        if (resp.status >= 400 && resp.status < 500) {
+          httpErr.fatal = true;
+          throw httpErr;
+        }
+        throw httpErr;
       }
       const blob = await resp.blob();
       const disp = resp.headers.get('Content-Disposition') || '';
@@ -48,7 +57,16 @@ export async function downloadAuthenticatedBlob(session, path, fallbackFilename 
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
       return filename;
     } catch (err) {
-      lastErr = err;
+      if (err && err.fatal) {
+        throw err;
+      }
+      if (err && err.name === 'AbortError') {
+        lastErr = new Error('Document export timed out. Please retry in a few seconds.');
+      } else {
+        lastErr = err;
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastErr || new Error('Unable to download document.');

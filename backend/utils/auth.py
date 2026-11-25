@@ -121,6 +121,7 @@ def require_auth(require_verified_email: bool = True) -> Callable:
                     error_code="email_not_verified",
                 )
 
+            g.access_token = token
             g.current_user = AuthenticatedUser(
                 user_id=user_id,
                 email=email,

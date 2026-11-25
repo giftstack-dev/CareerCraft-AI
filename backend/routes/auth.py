@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, g, request
 
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_secret_client, get_user_client
 from utils.auth import require_auth
 from utils.errors import ServiceUnavailableError, ValidationError, success_response
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
+
+PROFILE_SELECT_COLS = (
+    "id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at"
+)
 
 
 @auth_bp.get("/config")
@@ -31,13 +35,26 @@ def get_public_auth_config():
     )
 
 
+def _format_profile_summary(row: dict | None, fallback_id: str, fallback_email: str, fallback_name: str) -> dict:
+    row = row or {}
+    return {
+        "id": row.get("id") or fallback_id,
+        "full_name": row.get("full_name") if row.get("full_name") is not None else fallback_name,
+        "email": row.get("email") if row.get("email") is not None else fallback_email,
+        "onboarding_status": row.get("onboarding_status") or "not_started",
+        "onboarding_step": int(row.get("onboarding_step") or 1),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
 def _ensure_user_profile(user_id: str, email: str, full_name: str) -> dict:
-    """Idempotently initialize and return the authenticated user's profile row."""
-    client = get_secret_client()
+    """Idempotently initialize and return the authenticated user's profile row under RLS."""
+    client = get_user_client()
     try:
         existing = (
             client.table("profiles")
-            .select("id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at")
+            .select(PROFILE_SELECT_COLS)
             .eq("id", user_id)
             .limit(1)
             .execute()
@@ -49,42 +66,64 @@ def _ensure_user_profile(user_id: str, email: str, full_name: str) -> dict:
                 "Database schema is not initialized yet. Execute the Supabase SQL schema and migrations first."
             ) from exc
         raise
+
     rows = existing.data or []
     if rows:
         profile = rows[0]
-        # Keep email/full_name synced if previously blank
         updates: dict[str, str] = {}
         if email and not profile.get("email"):
             updates["email"] = email
         if full_name and not profile.get("full_name"):
             updates["full_name"] = full_name
         if updates:
-            updated = (
-                client.table("profiles")
-                .update(updates)
-                .eq("id", user_id)
-                .select("id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at")
-                .execute()
-            )
+            updated = client.table("profiles").update(updates).eq("id", user_id).execute()
             if updated.data:
-                return updated.data[0]
-        return profile
+                return _format_profile_summary(updated.data[0], user_id, email, full_name)
+            refreshed = (
+                client.table("profiles").select(PROFILE_SELECT_COLS).eq("id", user_id).limit(1).execute()
+            )
+            if refreshed.data:
+                return _format_profile_summary(refreshed.data[0], user_id, email, full_name)
+        return _format_profile_summary(profile, user_id, email, full_name)
 
-    inserted = (
-        client.table("profiles")
-        .insert(
-            {
-                "id": user_id,
-                "email": email,
-                "full_name": full_name,
-                "onboarding_status": "not_started",
-                "onboarding_step": 1,
-            }
+    try:
+        inserted = (
+            client.table("profiles")
+            .insert(
+                {
+                    "id": user_id,
+                    "email": email,
+                    "full_name": full_name,
+                    "onboarding_status": "not_started",
+                    "onboarding_step": 1,
+                }
+            )
+            .execute()
         )
-        .select("id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at")
-        .execute()
-    )
-    return (inserted.data or [{}])[0]
+        if inserted.data:
+            return _format_profile_summary(inserted.data[0], user_id, email, full_name)
+    except Exception:
+        # Fallback for environments where profiles RLS insert requires service role bootstrap
+        secret_client = get_secret_client()
+        inserted = (
+            secret_client.table("profiles")
+            .upsert(
+                {
+                    "id": user_id,
+                    "email": email,
+                    "full_name": full_name,
+                    "onboarding_status": "not_started",
+                    "onboarding_step": 1,
+                },
+                on_conflict="id",
+            )
+            .execute()
+        )
+        if inserted.data:
+            return _format_profile_summary(inserted.data[0], user_id, email, full_name)
+
+    refreshed = client.table("profiles").select(PROFILE_SELECT_COLS).eq("id", user_id).limit(1).execute()
+    return _format_profile_summary((refreshed.data or [{}])[0], user_id, email, full_name)
 
 
 @auth_bp.get("/me")
@@ -138,13 +177,15 @@ def update_onboarding_status():
     user = g.current_user
     _ensure_user_profile(user.user_id, user.email, user.full_name)
 
-    client = get_secret_client()
-    updated = (
-        client.table("profiles")
-        .update(updates)
-        .eq("id", user.user_id)
-        .select("id, full_name, email, onboarding_status, onboarding_step, updated_at")
-        .execute()
-    )
-    profile = (updated.data or [{}])[0]
+    client = get_user_client()
+    updated = client.table("profiles").update(updates).eq("id", user.user_id).execute()
+    if updated.data:
+        row = updated.data[0]
+    else:
+        refreshed = (
+            client.table("profiles").select(PROFILE_SELECT_COLS).eq("id", user.user_id).limit(1).execute()
+        )
+        row = (refreshed.data or [{}])[0]
+
+    profile = _format_profile_summary(row, user.user_id, user.email, user.full_name)
     return success_response(data={"profile": profile}, message="Onboarding progress updated.")

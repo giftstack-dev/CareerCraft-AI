@@ -9,8 +9,9 @@ import { APP_CONFIG, isSupabasePublicConfigured, loadRuntimeConfig } from './con
 
 let supabaseInstance = null;
 
-export async function getSupabaseClient() {
-  await loadRuntimeConfig();
+export async function getSupabaseClient(options = {}) {
+  const { signal = null, onSlowLoad = null } = options;
+  await loadRuntimeConfig({ signal, onSlowLoad });
 
   if (!isSupabasePublicConfigured()) {
     return null;
@@ -40,19 +41,33 @@ export function isUserEmailVerified(user) {
 
 /**
  * Verifies session against Flask /api/auth/me and initializes user profile.
- * Distinguishes auth errors (401/403) from backend/database availability errors.
+ * Distinguishes auth errors (401/403), cancellations, and backend/database availability errors.
  */
-export async function syncUserProfile(session, user) {
+export async function syncUserProfile(session, user, options = {}) {
   if (!session || !user) {
     return { errorStatus: 401, errorCode: 'missing_session', message: 'No active session found.' };
   }
 
+  const { signal = null, onSlowLoad = null, timeoutMs = 70000 } = options;
+
   const apiRes = await apiRequest('/api/auth/me', {
     method: 'GET',
+    timeoutMs,
+    signal,
+    onSlowRequest: onSlowLoad,
     headers: {
       Authorization: `Bearer ${session.access_token}`,
     },
   });
+
+  if (apiRes.cancelled) {
+    return {
+      errorStatus: 0,
+      cancelled: true,
+      errorCode: 'cancelled',
+      message: apiRes.message || 'Verification cancelled.',
+    };
+  }
 
   if (apiRes.success && apiRes.data && apiRes.data.profile) {
     return apiRes.data.profile;
@@ -67,26 +82,30 @@ export async function syncUserProfile(session, user) {
   }
 
   // Fallback to direct RLS-enforced Supabase profile query only if backend was temporarily unreachable (status 0)
-  if (apiRes.status === 0) {
-    const supabase = await getSupabaseClient();
-    if (supabase) {
-      const { data: existing, error: selectErr } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at')
-        .eq('id', user.id)
-        .maybeSingle();
+  if (apiRes.status === 0 && !(signal && signal.aborted)) {
+    try {
+      const supabase = await getSupabaseClient({ signal });
+      if (supabase) {
+        const { data: existing, error: selectErr } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at')
+          .eq('id', user.id)
+          .maybeSingle();
 
-      if (!selectErr && existing) {
-        return existing;
+        if (!selectErr && existing) {
+          return existing;
+        }
+        if (selectErr && String(selectErr.code || '') === 'PGRST205') {
+          return {
+            errorStatus: 503,
+            errorCode: 'schema_not_initialized',
+            message:
+              'The Supabase database tables have not been initialized yet. Execute the SQL schema and migrations in Supabase before signing in.',
+          };
+        }
       }
-      if (selectErr && String(selectErr.code || '') === 'PGRST205') {
-        return {
-          errorStatus: 503,
-          errorCode: 'schema_not_initialized',
-          message:
-            'The Supabase database tables have not been initialized yet. Execute the SQL schema and migrations in Supabase before signing in.',
-        };
-      }
+    } catch {
+      // Fall through to structured backend unavailable response below
     }
   }
 
@@ -100,13 +119,13 @@ export async function syncUserProfile(session, user) {
 }
 
 export async function signOutAndRedirect(redirectUrl = '/login.html?logged_out=1') {
-  const supabase = await getSupabaseClient();
-  if (supabase) {
-    try {
+  try {
+    const supabase = await getSupabaseClient();
+    if (supabase) {
       await supabase.auth.signOut();
-    } catch {
-      // Proceed to clear local client state and redirect
     }
+  } catch {
+    // Proceed to clear local client state and redirect
   }
   sessionStorage.removeItem('cc_pending_verification_email');
   window.location.replace(redirectUrl);

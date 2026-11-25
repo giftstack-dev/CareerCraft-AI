@@ -50,18 +50,61 @@ export function isSupabasePublicConfigured() {
   );
 }
 
-async function fetchPublicConfigFromEndpoint(endpointUrl, timeoutMs = 12000) {
+function makeAbortError(message = 'Configuration loading cancelled.') {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
+function sleepWithSignal(ms, externalSignal) {
+  return new Promise((resolve, reject) => {
+    if (externalSignal && externalSignal.aborted) {
+      reject(makeAbortError());
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(makeAbortError());
+    };
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
+
+async function fetchPublicConfigFromEndpoint(endpointUrl, timeoutMs = 25000, externalSignal = null) {
+  if (externalSignal && externalSignal.aborted) {
+    throw makeAbortError();
+  }
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
   try {
     const resp = await fetch(endpointUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });
-    if (!resp.ok) return false;
+    const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+    if (!resp.ok || !contentType.includes('application/json')) {
+      return false;
+    }
     const json = await resp.json();
-    if (json && json.success && json.data) {
+    if (json && json.success === true && json.data) {
       if (json.data.supabaseUrl) {
         APP_CONFIG.supabaseUrl = String(json.data.supabaseUrl).trim();
       }
@@ -71,52 +114,108 @@ async function fetchPublicConfigFromEndpoint(endpointUrl, timeoutMs = 12000) {
       return isSupabasePublicConfigured();
     }
     return false;
-  } catch {
+  } catch (err) {
+    if (externalSignal && externalSignal.aborted) {
+      throw makeAbortError();
+    }
+    if (timedOut) {
+      return false;
+    }
+    if (err && err.name === 'AbortError') {
+      throw err;
+    }
     return false;
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
+}
+
+function raceWithSignal(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(makeAbortError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(makeAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (val) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(val);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
 }
 
 /**
  * Ensures public runtime configuration is loaded.
- * Uses Vite-injected /runtime-config.js first, then falls back to Flask GET /api/auth/config
- * (Render backend primary, with same-origin /api/auth/config proxy fallback).
+ * Uses build-injected /runtime-config.js first (instant, zero cold-start wait),
+ * then falls back to Flask GET /api/auth/config with >60s Render cold-start tolerance.
  */
-export async function loadRuntimeConfig() {
+export async function loadRuntimeConfig(options = {}) {
+  const { signal = null, onSlowLoad = null } = options;
+
   if (isSupabasePublicConfigured()) {
     return APP_CONFIG;
   }
-
-  if (inFlightConfigPromise) {
-    return inFlightConfigPromise;
+  if (signal && signal.aborted) {
+    throw makeAbortError();
   }
 
-  inFlightConfigPromise = (async () => {
-    const base = APP_CONFIG.apiBaseUrl.replace(/\/$/, '');
-    const primaryUrl = base ? `${base}/api/auth/config` : '/api/auth/config';
-
-    let ok = await fetchPublicConfigFromEndpoint(primaryUrl, 12000);
-
-    // Retry same-origin /api/auth/config (Netlify proxy) if direct Render request failed
-    if (!ok && base) {
-      ok = await fetchPublicConfigFromEndpoint('/api/auth/config', 10000);
-      if (ok) {
-        APP_CONFIG.apiBaseUrl = '';
-      }
-    }
-
-    // One additional retry in case Render free tier was waking from cold start
-    if (!ok) {
-      await fetchPublicConfigFromEndpoint(primaryUrl, 15000);
-    }
-
-    return APP_CONFIG;
-  })();
+  let slowTimer = null;
+  if (typeof onSlowLoad === 'function') {
+    slowTimer = setTimeout(() => {
+      onSlowLoad(
+        'Waking up the CareerCraft AI backend service on free hosting (this can take up to 50–60 seconds after inactivity)...'
+      );
+    }, 5500);
+  }
 
   try {
-    return await inFlightConfigPromise;
+    if (!inFlightConfigPromise) {
+      inFlightConfigPromise = (async () => {
+        const base = APP_CONFIG.apiBaseUrl.replace(/\/$/, '');
+        const primaryUrl = base ? `${base}/api/auth/config` : '/api/auth/config';
+
+        // Attempt 1: up to 30s for direct wake
+        let ok = await fetchPublicConfigFromEndpoint(primaryUrl, 30000);
+
+        // Attempt 2: same-origin Netlify proxy fallback (up to 20s)
+        if (!ok && base) {
+          ok = await fetchPublicConfigFromEndpoint('/api/auth/config', 20000);
+          if (ok) {
+            APP_CONFIG.apiBaseUrl = '';
+          }
+        }
+
+        // Attempt 3: final cold-start wake check (up to 20s)
+        if (!ok) {
+          await new Promise((r) => setTimeout(r, 1500));
+          await fetchPublicConfigFromEndpoint(primaryUrl, 20000);
+        }
+
+        return APP_CONFIG;
+      })().finally(() => {
+        inFlightConfigPromise = null;
+      });
+    }
+
+    return await raceWithSignal(inFlightConfigPromise, signal);
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      throw err;
+    }
+    return APP_CONFIG;
   } finally {
-    inFlightConfigPromise = null;
+    if (slowTimer) clearTimeout(slowTimer);
+    if (signal && signal.aborted) {
+      // Ensure caller sees cancellation even if in-flight promise settled later
+      await sleepWithSignal(0, signal);
+    }
   }
 }

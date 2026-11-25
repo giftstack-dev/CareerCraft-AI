@@ -60,6 +60,30 @@ function parseCooldownSeconds(err, fallback = DEFAULT_EMAIL_COOLDOWN_SEC) {
   return fallback;
 }
 
+async function getSupabaseWithFeedback(alertBox, buttonEl = null, slowMessage = null) {
+  let shownSlow = false;
+  return getSupabaseClient({
+    onSlowLoad: () => {
+      if (shownSlow) return;
+      shownSlow = true;
+      if (buttonEl && !buttonEl.dataset.originalText) {
+        buttonEl.dataset.originalText = buttonEl.textContent || '';
+      }
+      if (buttonEl) {
+        buttonEl.textContent = 'Waking backend service...';
+      }
+      if (alertBox) {
+        showAlert(
+          alertBox,
+          slowMessage ||
+            'Waking up the CareerCraft AI backend service on free hosting (this can take up to 50–60 seconds after inactivity)...',
+          'info'
+        );
+      }
+    },
+  });
+}
+
 function formatAuthErrorMessage(err, context = 'auth') {
   const msg = String((err && err.message) || '');
   const lower = msg.toLowerCase();
@@ -87,6 +111,14 @@ function formatAuthErrorMessage(err, context = 'auth') {
 
   if (lower.includes('already registered') || lower.includes('already exists')) {
     return 'An account with this email address already exists. Please sign in or reset your password.';
+  }
+
+  if (lower.includes('invalid login credentials') || lower.includes('invalid credentials')) {
+    return 'Invalid email address or password.';
+  }
+
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('timed out')) {
+    return 'Unable to reach the authentication service. Check your connection and try again.';
   }
 
   return msg || 'Authentication request failed. Please try again.';
@@ -186,7 +218,7 @@ function initGoogleOAuthButton(alertBox, params) {
     googleBtn.textContent = 'Connecting to Google...';
 
     try {
-      const supabase = await getSupabaseClient();
+      const supabase = await getSupabaseWithFeedback(alertBox, googleBtn);
       if (!supabase) {
         showAlert(alertBox, getMissingConfigMessage(), 'error');
         return;
@@ -214,12 +246,8 @@ function initGoogleOAuthButton(alertBox, params) {
       if (error) {
         showAlert(alertBox, formatAuthErrorMessage(error, 'oauth'), 'error');
       }
-    } catch {
-      showAlert(
-        alertBox,
-        'Unable to start Google sign-in right now. Check your connection and try again.',
-        'error'
-      );
+    } catch (err) {
+      showAlert(alertBox, formatAuthErrorMessage(err, 'oauth'), 'error');
     } finally {
       redirecting = false;
       googleBtn.disabled = false;
@@ -272,7 +300,11 @@ async function initAuthCallbackPage() {
     return;
   }
 
-  const supabase = await getSupabaseClient();
+  const supabase = await getSupabaseWithFeedback(
+    alertBox,
+    null,
+    'Waking up the CareerCraft AI backend service on free hosting (this can take up to 50–60 seconds after inactivity)...'
+  );
   if (!supabase) {
     showCallbackError('Configuration unavailable', getMissingConfigMessage());
     return;
@@ -348,7 +380,14 @@ async function initAuthCallbackPage() {
     if (heading) heading.textContent = 'Preparing your workspace';
     if (copy) copy.textContent = 'Initializing your career profile and checking onboarding status...';
 
-    const profile = await syncUserProfile(session, user);
+    const profile = await syncUserProfile(session, user, {
+      onSlowLoad: () => {
+        if (copy) {
+          copy.textContent =
+            'Waking up the backend service on free hosting (this can take up to 50–60 seconds)...';
+        }
+      },
+    });
     if (profile && profile.errorStatus === 403) {
       sessionStorage.setItem(PENDING_EMAIL_KEY, user.email || '');
       window.location.replace('/verify-email.html');
@@ -372,10 +411,10 @@ async function initAuthCallbackPage() {
     }
 
     redirectAfterVerifiedAuth(profile, alertBox);
-  } catch {
+  } catch (err) {
     showCallbackError(
       'Sign-in error',
-      'Unable to complete Google sign-in right now. Check your connection and try again.'
+      formatAuthErrorMessage(err, 'oauth')
     );
   }
 }
@@ -454,7 +493,7 @@ function initRegisterPage() {
     submitBtn.textContent = 'Creating Account...';
 
     try {
-      const supabase = await getSupabaseClient();
+      const supabase = await getSupabaseWithFeedback(alertBox, submitBtn);
       if (!supabase) {
         showAlert(alertBox, getMissingConfigMessage(), 'error');
         return;
@@ -493,7 +532,15 @@ function initRegisterPage() {
 
       // If Supabase returned an already-confirmed active session
       if (data.session && isUserEmailVerified(data.user)) {
-        const profile = await syncUserProfile(data.session, data.user);
+        const profile = await syncUserProfile(data.session, data.user, {
+          onSlowLoad: () => {
+            showAlert(
+              alertBox,
+              'Account verified! Initializing your workspace while the backend finishes waking up...',
+              'info'
+            );
+          },
+        });
         redirectAfterVerifiedAuth(profile, alertBox);
         return;
       }
@@ -503,12 +550,8 @@ function initRegisterPage() {
         String(Date.now() + DEFAULT_EMAIL_COOLDOWN_SEC * 1000)
       );
       window.location.replace('/verify-email.html?sent=1');
-    } catch {
-      showAlert(
-        alertBox,
-        'Unable to connect to the authentication service. Please check your connection and try again.',
-        'error'
-      );
+    } catch (err) {
+      showAlert(alertBox, formatAuthErrorMessage(err, 'registration'), 'error');
     } finally {
       submitting = false;
       submitBtn.disabled = false;
@@ -544,7 +587,7 @@ async function initVerifyEmailPage() {
     activePrefix: 'Resend available in',
   });
 
-  const supabase = await getSupabaseClient();
+  const supabase = await getSupabaseWithFeedback(alertBox, null);
   if (!supabase) {
     showAlert(alertBox, getMissingConfigMessage(), 'error');
     return;
@@ -623,7 +666,12 @@ async function initVerifyEmailPage() {
         sessionStorage.removeItem(RESEND_COOLDOWN_UNTIL_KEY);
         statusHeading.textContent = 'Email verified';
         statusCopy.textContent = 'Initializing your career profile and checking onboarding status...';
-        const profile = await syncUserProfile(session, user);
+        const profile = await syncUserProfile(session, user, {
+          onSlowLoad: () => {
+            statusCopy.textContent =
+              'Waking up the backend service on free hosting (this can take up to 50–60 seconds)...';
+          },
+        });
         if (profile && profile.errorStatus) {
           showAlert(
             alertBox,
@@ -640,8 +688,8 @@ async function initVerifyEmailPage() {
         return;
       }
     }
-  } catch {
-    showAlert(alertBox, 'Unable to verify your email link. Please try requesting a new verification email.', 'error');
+  } catch (err) {
+    showAlert(alertBox, formatAuthErrorMessage(err, 'verification'), 'error');
   }
 
   if (resendForm) {
@@ -717,14 +765,22 @@ async function initLoginPage() {
     showAlert(alertBox, 'Your session expired. Please sign in again.', 'info');
   }
 
-  const supabase = await getSupabaseClient();
+  const supabase = await getSupabaseWithFeedback(alertBox, null);
   if (supabase) {
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData && sessionData.session) {
       const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: null }));
       const verifiedUser = userData && userData.user;
       if (verifiedUser && isUserEmailVerified(verifiedUser)) {
-        const profile = await syncUserProfile(sessionData.session, verifiedUser);
+        const profile = await syncUserProfile(sessionData.session, verifiedUser, {
+          onSlowLoad: () => {
+            showAlert(
+              alertBox,
+              'Waking up the backend service on free hosting to restore your session (up to 50–60s)...',
+              'info'
+            );
+          },
+        });
         if (profile && !profile.errorStatus) {
           const nextUrl = params.get('next');
           if (isSafeInternalPath(nextUrl)) {
@@ -773,7 +829,7 @@ async function initLoginPage() {
     submitBtn.textContent = 'Signing In...';
 
     try {
-      const client = await getSupabaseClient();
+      const client = await getSupabaseWithFeedback(alertBox, submitBtn);
       if (!client) {
         showAlert(alertBox, getMissingConfigMessage(), 'error');
         return;
@@ -803,7 +859,7 @@ async function initLoginPage() {
           );
           return;
         }
-        showAlert(alertBox, 'Invalid email address or password.', 'error');
+        showAlert(alertBox, formatAuthErrorMessage(error, 'login'), 'error');
         return;
       }
 
@@ -819,7 +875,16 @@ async function initLoginPage() {
         return;
       }
 
-      const profile = await syncUserProfile(data.session, verifiedUser);
+      const profile = await syncUserProfile(data.session, verifiedUser, {
+        onSlowLoad: () => {
+          submitBtn.textContent = 'Waking backend...';
+          showAlert(
+            alertBox,
+            'Signed in! Waking up the CareerCraft AI backend service on free hosting (this can take up to 50–60 seconds)...',
+            'info'
+          );
+        },
+      });
       if (profile && profile.errorStatus === 403) {
         window.location.replace('/verify-email.html');
         return;
@@ -839,8 +904,8 @@ async function initLoginPage() {
       } else {
         redirectAfterVerifiedAuth(profile, alertBox);
       }
-    } catch {
-      showAlert(alertBox, 'Unable to reach the authentication service. Please try again.', 'error');
+    } catch (err) {
+      showAlert(alertBox, formatAuthErrorMessage(err, 'login'), 'error');
     } finally {
       submitting = false;
       submitBtn.disabled = false;
@@ -892,7 +957,7 @@ function initForgotPasswordPage() {
 
     let cooldownStarted = false;
     try {
-      const supabase = await getSupabaseClient();
+      const supabase = await getSupabaseWithFeedback(alertBox, submitBtn);
       if (!supabase) {
         showAlert(alertBox, getMissingConfigMessage(), 'error');
         return;
@@ -919,8 +984,8 @@ function initForgotPasswordPage() {
       form.reset();
       cooldown.start(DEFAULT_EMAIL_COOLDOWN_SEC);
       cooldownStarted = true;
-    } catch {
-      showAlert(alertBox, 'Network error while requesting password recovery.', 'error');
+    } catch (err) {
+      showAlert(alertBox, formatAuthErrorMessage(err, 'recovery'), 'error');
     } finally {
       submitting = false;
       if (submitBtn && !cooldownStarted && !cooldown.isActive()) {
@@ -940,7 +1005,7 @@ async function initResetPasswordPage() {
 
   const alertBox = document.getElementById('reset-alert');
   const submitBtn = document.getElementById('reset-submit');
-  const supabase = await getSupabaseClient();
+  const supabase = await getSupabaseWithFeedback(alertBox, null);
 
   if (!supabase) {
     showAlert(alertBox, getMissingConfigMessage(), 'error');

@@ -1,3 +1,5 @@
+# Configure public build-time env vars in Netlify Site Settings -> Environment variables:
+#   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY (never place SUPABASE_SECRET_KEY or GEMINI_API_KEY here)
 [build]
   command = "npm run build"
   publish = "dist"

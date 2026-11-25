@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -12,10 +13,11 @@ from flask import Blueprint, current_app, g, request
 
 from services.gemini_service import GeminiService
 from services.profile_service import get_full_profile, handle_supabase_error
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_secret_client, get_user_client
 from utils.auth import require_auth
 from utils.errors import success_response
 
+logger = logging.getLogger(__name__)
 dashboard_bp = Blueprint("dashboard", __name__)
 
 APPLICATION_STATUSES = [
@@ -93,20 +95,38 @@ def _probe_supabase_database(cfg) -> dict[str, Any]:
 def _probe_gemini_api(cfg, run_generation_check: bool = True) -> dict[str, Any]:
     if not cfg.gemini_configured:
         return {"connected": False, "status": "unconfigured", "model": cfg.GEMINI_MODEL}
-    service = GeminiService(
-        api_key=cfg.GEMINI_API_KEY,
-        model=cfg.GEMINI_MODEL,
-        timeout_seconds=cfg.AI_REQUEST_TIMEOUT,
-    )
-    return service.verify_connectivity(run_generation_check=run_generation_check)
+    try:
+        service = GeminiService(
+            api_key=cfg.GEMINI_API_KEY,
+            model=cfg.GEMINI_MODEL,
+            timeout_seconds=cfg.AI_REQUEST_TIMEOUT,
+        )
+        return service.verify_connectivity(run_generation_check=run_generation_check)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Gemini probe raised unexpected error safely: %s", type(exc).__name__)
+        return {
+            "connected": False,
+            "status": "error",
+            "model": cfg.GEMINI_MODEL,
+            "generation_verified": False,
+            "error_type": type(exc).__name__,
+        }
+
+
+def _safe_probe(fn, *args, **kwargs) -> dict[str, Any]:
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Connectivity probe %s failed safely: %s", getattr(fn, "__name__", "probe"), type(exc).__name__)
+        return {"connected": False, "status": "error", "error_type": type(exc).__name__}
 
 
 def run_live_connectivity_checks(cfg, run_gemini_generation: bool = True) -> dict[str, Any]:
     """Execute actual connectivity probes against Supabase Auth, JWKS, DB, and Gemini."""
-    auth_probe = _probe_supabase_auth(cfg)
-    jwks_probe = _probe_supabase_jwks(cfg)
-    db_probe = _probe_supabase_database(cfg)
-    gemini_probe = _probe_gemini_api(cfg, run_generation_check=run_gemini_generation)
+    auth_probe = _safe_probe(_probe_supabase_auth, cfg)
+    jwks_probe = _safe_probe(_probe_supabase_jwks, cfg)
+    db_probe = _safe_probe(_probe_supabase_database, cfg)
+    gemini_probe = _safe_probe(_probe_gemini_api, cfg, run_generation_check=run_gemini_generation)
 
     all_connected = all(
         probe.get("connected") is True
@@ -177,7 +197,7 @@ def get_dashboard():
     """Aggregate real authenticated user metrics, status summaries, and activity."""
     user_id = g.current_user.user_id
     full_profile = get_full_profile(user_id)
-    client = get_secret_client()
+    client = get_user_client()
 
     try:
         jobs_res = (

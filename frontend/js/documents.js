@@ -108,11 +108,17 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Delete',
-              onClick: async () => {
-                const res = await authApiRequest(session, `/api/documents/${doc.id}`, { method: 'DELETE' });
-                if (!res.success) return showAlert(alertBox, res.message, 'error');
-                if (selectedDoc && selectedDoc.id === doc.id) selectedDoc = null;
-                await loadDocuments();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/documents/${doc.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message, 'error');
+                  if (selectedDoc && selectedDoc.id === doc.id) selectedDoc = null;
+                  await loadDocuments();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ]),
@@ -135,7 +141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       sheet.appendChild(
         el('div', { className: 'doc-preview-section' }, [
           el('h3', { textContent: 'Professional Summary' }),
-          el('p', { textContent: content.summary }),
+          el('p', { style: 'white-space: pre-line;', textContent: content.summary }),
         ])
       );
     }
@@ -144,11 +150,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const secNode = el('div', { className: 'doc-preview-section' }, [
         sec.heading ? el('h3', { textContent: sec.heading }) : null,
       ]);
-      if (sec.body) secNode.appendChild(el('p', { textContent: sec.body }));
+      if (sec.body) secNode.appendChild(el('p', { style: 'white-space: pre-line;', textContent: sec.body }));
       (sec.entries || []).forEach((entry) => {
         const titleLine = [entry.title, entry.meta].filter(Boolean).join(' — ');
         if (titleLine) secNode.appendChild(el('p', { style: 'font-weight: 600; margin-top: 0.5rem;', textContent: titleLine }));
-        if (entry.description) secNode.appendChild(el('p', { textContent: entry.description }));
+        if (entry.description) secNode.appendChild(el('p', { style: 'white-space: pre-line;', textContent: entry.description }));
         if (entry.bullets && entry.bullets.length) {
           secNode.appendChild(
             el('ul', { className: 'doc-preview-bullets' }, entry.bullets.map((b) => el('li', { textContent: b })))
@@ -165,7 +171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     (content.paragraphs || []).forEach((p) => {
       if (String(p || '').trim()) {
-        sheet.appendChild(el('p', { style: 'margin-top: 0.65rem;', textContent: p }));
+        sheet.appendChild(el('p', { style: 'margin-top: 0.65rem; white-space: pre-line;', textContent: p }));
       }
     });
 
@@ -278,11 +284,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           type: 'button',
           className: 'btn btn-secondary btn-sm',
           textContent: 'Approve for Use',
-          onClick: async () => {
-            const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}/approve`, { method: 'POST' });
-            if (!res.success) return showAlert(alertBox, res.message, 'error');
-            showAlert(alertBox, 'Document marked as Approved.', 'success');
-            await loadDocuments(selectedDoc.id);
+          onClick: async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            try {
+              const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}/approve`, { method: 'POST' });
+              if (!res.success) return showAlert(alertBox, res.message, 'error');
+              showAlert(alertBox, 'Document marked as Approved.', 'success');
+              await loadDocuments(selectedDoc.id);
+            } finally {
+              btn.disabled = false;
+            }
           },
         }),
         el('button', {
@@ -322,23 +334,84 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     editorPanel.appendChild(actionsBar);
 
+    const valInfo = selectedDoc.validation_info || {};
+    const report = valInfo.grounding_report || null;
+    if (report || (valInfo.grounding_notes && valInfo.grounding_notes.length)) {
+      const verStatus = (report && report.verification_status) || valInfo.verification_status || 'verified';
+      const verifiedClaims = (report && report.verified_claims) || [];
+      const flaggedClaims = (report && report.flagged_claims) || [];
+      const missingInfo = (report && report.missing_information) || [];
+      const clarifications = (report && report.clarification_prompts) || [];
+      const notes = valInfo.grounding_notes || [];
+
+      editorPanel.appendChild(
+        el('div', { className: 'card', style: 'background-color: var(--color-bg); margin-bottom: 1.25rem;' }, [
+          el('div', { style: 'display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem;' }, [
+            el('h4', { className: 'card-title', style: 'margin-bottom: 0;', textContent: 'Factual Grounding & Review' }),
+            el('span', {
+              className: verStatus === 'verified' ? 'status-badge status-badge-success' : 'status-badge status-badge-warning',
+              textContent: verStatus === 'verified' ? 'Verified Against Profile' : 'Needs Review',
+            }),
+          ]),
+          notes.length
+            ? el('p', { className: 'card-text', style: 'margin-bottom: 0.5rem;', textContent: `Summary: ${notes.join(' ')}` })
+            : null,
+          flaggedClaims.length
+            ? el('div', { className: 'alert alert-warning', style: 'margin-bottom: 0.5rem;' }, [
+                el('strong', { textContent: 'Claims requiring your confirmation:' }),
+                el(
+                  'ul',
+                  { className: 'doc-preview-bullets', style: 'margin-top: 0.35rem;' },
+                  flaggedClaims.map((f) => el('li', { textContent: `${f.location}: "${f.claim}" — ${f.reason}` }))
+                ),
+              ])
+            : null,
+          verifiedClaims.length
+            ? el('ul', { className: 'doc-preview-bullets', style: 'margin-bottom: 0.5rem;' }, verifiedClaims.map((v) => el('li', { textContent: v.detail })))
+            : null,
+          missingInfo.length
+            ? el('p', { className: 'card-text', style: 'margin-bottom: 0.35rem;', textContent: `Missing profile fields: ${missingInfo.join(' · ')}` })
+            : null,
+          clarifications.length
+            ? el('p', { className: 'card-text', style: 'font-style: italic;', textContent: `Clarification prompt: ${clarifications.join(' ')}` })
+            : null,
+          report && report.disclaimer
+            ? el('p', { className: 'card-text', style: 'margin-top: 0.5rem; font-size: 0.8125rem;', textContent: report.disclaimer })
+            : null,
+        ])
+      );
+    }
+
+    const saveBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Edits as New Version' });
+    let saving = false;
+
     const form = el('form', {
       className: 'form-stack',
       onInput: refreshLivePreview,
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saving) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            document_title: titleIn.value.trim(),
-            template: tplSel.value,
-            structured_content: collectEditedContent(),
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        showAlert(alertBox, 'Changes saved as a new version.', 'success');
-        await loadDocuments(selectedDoc.id);
+        saving = true;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving Version...';
+        try {
+          const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              document_title: titleIn.value.trim(),
+              template: tplSel.value,
+              structured_content: collectEditedContent(),
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          showAlert(alertBox, 'Changes saved as a new version.', 'success');
+          await loadDocuments(selectedDoc.id);
+        } finally {
+          saving = false;
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Edits as New Version';
+        }
       },
     }, [
       el('div', { className: 'form-row-2' }, [
@@ -381,9 +454,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Entry Title' }), ec.eTitle]),
               el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Dates / Meta' }), ec.eMeta]),
             ]),
-            ec.eDesc.value
-              ? el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Description' }), ec.eDesc])
-              : null,
+            el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Description' }), ec.eDesc]),
             el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Bullets (one per line)' }), ec.eBullets]),
           ])
         );
@@ -406,11 +477,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       form.appendChild(el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Closing' }), closingArea]));
     }
 
-    form.appendChild(
-      el('div', { style: 'display: flex; gap: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Edits as New Version' }),
-      ])
-    );
+    form.appendChild(el('div', { style: 'display: flex; gap: 0.75rem;' }, [saveBtn]));
 
     editorPanel.appendChild(form);
     editorPanel.appendChild(el('h3', { className: 'card-title', style: 'margin-top: 2rem;', textContent: 'Live Formatted Preview' }));
@@ -433,14 +500,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-secondary btn-sm',
                 textContent: 'Restore Version',
-                onClick: async () => {
-                  const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}/restore`, {
-                    method: 'POST',
-                    body: JSON.stringify({ version_number: v.version_number }),
-                  });
-                  if (!res.success) return showAlert(alertBox, res.message, 'error');
-                  showAlert(alertBox, res.message, 'success');
-                  await loadDocuments(selectedDoc.id);
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  btn.textContent = 'Restoring...';
+                  try {
+                    const res = await authApiRequest(session, `/api/documents/${selectedDoc.id}/restore`, {
+                      method: 'POST',
+                      body: JSON.stringify({ version_number: v.version_number }),
+                    });
+                    if (!res.success) return showAlert(alertBox, res.message, 'error');
+                    showAlert(alertBox, res.message, 'success');
+                    await loadDocuments(selectedDoc.id);
+                  } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Restore Version';
+                  }
                 },
               }),
         ])

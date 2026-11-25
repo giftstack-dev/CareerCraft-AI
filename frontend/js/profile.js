@@ -70,54 +70,63 @@ document.addEventListener('DOMContentLoaded', async () => {
       .filter(Boolean)
       .join('\n');
 
+    const saveBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Personal Details' });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saveBtn.disabled) return;
         clearAlert(alertBox);
-        const links = linksIn.value
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => {
-            const parts = s.split('|');
-            return parts.length >= 2
-              ? { label: parts[0].trim(), url: parts.slice(1).join('|').trim() }
-              : { label: 'Link', url: s };
-          });
-        const langs = langsIn.value
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => {
-            const m = /^(.+?)\((.+?)\)$/.exec(s);
-            return m ? { language: m[1].trim(), proficiency: m[2].trim() } : { language: s, proficiency: 'Working proficiency' };
-          });
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+          const links = linksIn.value
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s) => {
+              const parts = s.split('|');
+              return parts.length >= 2
+                ? { label: parts[0].trim(), url: parts.slice(1).join('|').trim() }
+                : { label: 'Link', url: s };
+            });
+          const langs = langsIn.value
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s) => {
+              const m = /^(.+?)\((.+?)\)$/.exec(s);
+              return m ? { language: m[1].trim(), proficiency: m[2].trim() } : { language: s, proficiency: 'Working proficiency' };
+            });
 
-        const res = await authApiRequest(session, '/api/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            full_name: nameIn.value.trim(),
-            professional_title: titleIn.value.trim(),
-            phone: phoneIn.value.trim(),
-            country: countryIn.value.trim(),
-            city: cityIn.value.trim(),
-            portfolio_url: portIn.value.trim(),
-            professional_links: links,
-            languages: langs,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+          const res = await authApiRequest(session, '/api/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+              full_name: nameIn.value.trim(),
+              professional_title: titleIn.value.trim(),
+              phone: phoneIn.value.trim(),
+              country: countryIn.value.trim(),
+              city: cityIn.value.trim(),
+              portfolio_url: portIn.value.trim(),
+              professional_links: links,
+              languages: langs,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          bundle = res.data;
+          await supabase.auth.updateUser({ data: { full_name: nameIn.value.trim() } }).catch(() => {});
+          const headerEl = document.getElementById('header-user-name');
+          if (headerEl) headerEl.textContent = nameIn.value.trim();
+          showAlert(alertBox, 'Personal details and links saved.', 'success');
+          pctBadge.textContent = `${bundle.completion.percentage}% Complete`;
+          pctFill.style.width = `${bundle.completion.percentage}%`;
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Personal Details';
         }
-        bundle = res.data;
-        await supabase.auth.updateUser({ data: { full_name: nameIn.value.trim() } }).catch(() => {});
-        const headerEl = document.getElementById('header-user-name');
-        if (headerEl) headerEl.textContent = nameIn.value.trim();
-        showAlert(alertBox, 'Personal details and links saved.', 'success');
-        pctBadge.textContent = `${bundle.completion.percentage}% Complete`;
-        pctFill.style.width = `${bundle.completion.percentage}%`;
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Personal Details, Languages & Links' }),
@@ -135,7 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Professional links (Label | https://...)' }), linksIn]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Languages (one per line)' }), langsIn]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Personal Details' })]),
+      el('div', {}, [saveBtn]),
     ]);
     panel.appendChild(form);
   }
@@ -147,32 +156,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     const objIn = el('textarea', { className: 'form-input', style: 'min-height: 120px;' });
     objIn.value = p.career_objective || '';
 
+    const saveBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Summary' });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saveBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            professional_summary: sumIn.value.trim(),
-            career_objective: objIn.value.trim(),
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+          const res = await authApiRequest(session, '/api/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+              professional_summary: sumIn.value.trim(),
+              career_objective: objIn.value.trim(),
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          bundle = res.data;
+          pctBadge.textContent = `${bundle.completion.percentage}% Complete`;
+          pctFill.style.width = `${bundle.completion.percentage}%`;
+          showAlert(alertBox, 'Summary and career objective saved.', 'success');
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Summary';
         }
-        bundle = res.data;
-        pctBadge.textContent = `${bundle.completion.percentage}% Complete`;
-        pctFill.style.width = `${bundle.completion.percentage}%`;
-        showAlert(alertBox, 'Summary and career objective saved.', 'success');
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Professional Summary & Career Objective' }),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Professional summary' }), sumIn]),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Career objective' }), objIn]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Summary' })]),
+      el('div', {}, [saveBtn]),
     ]);
     panel.appendChild(form);
   }
@@ -210,12 +228,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-danger btn-sm',
                 textContent: 'Delete',
-                onClick: async () => {
-                  const res = await authApiRequest(session, `/api/profile/experience/${item.id}`, { method: 'DELETE' });
-                  if (!res.success) return showAlert(alertBox, res.message, 'error');
-                  if (editingId === item.id) editingId = null;
-                  await loadProfile();
-                  renderPanel();
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const res = await authApiRequest(session, `/api/profile/experience/${item.id}`, { method: 'DELETE' });
+                    if (!res.success) return showAlert(alertBox, res.message, 'error');
+                    if (editingId === item.id) editingId = null;
+                    if (await loadProfile()) renderPanel();
+                  } finally {
+                    btn.disabled = false;
+                  }
                 },
               }),
             ]),
@@ -241,30 +264,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     const achIn = el('textarea', { className: 'form-input', placeholder: 'One measurable achievement per line...' });
     achIn.value = editingItem ? (editingItem.achievements || []).join('\n') : '';
 
+    const submitLabel = editingItem ? 'Save Changes' : 'Add Experience';
+    const submitBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: submitLabel });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (submitBtn.disabled) return;
         clearAlert(alertBox);
-        const method = editingItem ? 'PUT' : 'POST';
-        const url = editingItem ? `/api/profile/experience/${editingItem.id}` : '/api/profile/experience';
-        const res = await authApiRequest(session, url, {
-          method,
-          body: JSON.stringify({
-            employer: empIn.value.trim(),
-            job_title: titleIn.value.trim(),
-            start_date: startIn.value,
-            end_date: endIn.value,
-            is_current: currChk.checked,
-            responsibilities: respIn.value,
-            achievements: achIn.value,
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        editingId = null;
-        showAlert(alertBox, editingItem ? 'Experience updated.' : 'Experience added.', 'success');
-        await loadProfile();
-        renderPanel();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        try {
+          const method = editingItem ? 'PUT' : 'POST';
+          const url = editingItem ? `/api/profile/experience/${editingItem.id}` : '/api/profile/experience';
+          const res = await authApiRequest(session, url, {
+            method,
+            body: JSON.stringify({
+              employer: empIn.value.trim(),
+              job_title: titleIn.value.trim(),
+              start_date: startIn.value,
+              end_date: endIn.value,
+              is_current: currChk.checked,
+              responsibilities: respIn.value,
+              achievements: achIn.value,
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          editingId = null;
+          showAlert(alertBox, editingItem ? 'Experience updated.' : 'Experience added.', 'success');
+          if (await loadProfile()) renderPanel();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = submitLabel;
+        }
       },
     }, [
       el('h3', { className: 'card-title', textContent: editingItem ? 'Edit Work Experience' : 'Add Work Experience' }),
@@ -282,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Confirmed achievements (one per line)' }), achIn]),
       ]),
       el('div', { style: 'display: flex; gap: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: editingItem ? 'Save Changes' : 'Add Experience' }),
+        submitBtn,
         editingItem
           ? el('button', { type: 'button', className: 'btn btn-secondary', textContent: 'Cancel Edit', onClick: () => { editingId = null; renderPanel(); } })
           : null,
@@ -315,11 +347,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-danger btn-sm',
                 textContent: 'Delete',
-                onClick: async () => {
-                  await authApiRequest(session, `/api/profile/education/${ed.id}`, { method: 'DELETE' });
-                  if (editingId === ed.id) editingId = null;
-                  await loadProfile();
-                  renderPanel();
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const res = await authApiRequest(session, `/api/profile/education/${ed.id}`, { method: 'DELETE' });
+                    if (!res.success) return showAlert(alertBox, res.message || 'Could not delete education entry.', 'error');
+                    if (editingId === ed.id) editingId = null;
+                    if (await loadProfile()) renderPanel();
+                  } finally {
+                    btn.disabled = false;
+                  }
                 },
               }),
             ]),
@@ -336,29 +374,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     const achIn = el('textarea', { className: 'form-input' });
     achIn.value = (editingItem && editingItem.achievements) || '';
 
+    const submitLabel = editingItem ? 'Save Changes' : 'Add Education';
+    const submitBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: submitLabel });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (submitBtn.disabled) return;
         clearAlert(alertBox);
-        const method = editingItem ? 'PUT' : 'POST';
-        const url = editingItem ? `/api/profile/education/${editingItem.id}` : '/api/profile/education';
-        const res = await authApiRequest(session, url, {
-          method,
-          body: JSON.stringify({
-            institution: instIn.value.trim(),
-            qualification: qualIn.value.trim(),
-            field_of_study: fieldIn.value.trim(),
-            start_date: startIn.value,
-            end_date: endIn.value,
-            achievements: achIn.value.trim(),
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        editingId = null;
-        showAlert(alertBox, editingItem ? 'Education updated.' : 'Education added.', 'success');
-        await loadProfile();
-        renderPanel();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        try {
+          const method = editingItem ? 'PUT' : 'POST';
+          const url = editingItem ? `/api/profile/education/${editingItem.id}` : '/api/profile/education';
+          const res = await authApiRequest(session, url, {
+            method,
+            body: JSON.stringify({
+              institution: instIn.value.trim(),
+              qualification: qualIn.value.trim(),
+              field_of_study: fieldIn.value.trim(),
+              start_date: startIn.value,
+              end_date: endIn.value,
+              achievements: achIn.value.trim(),
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          editingId = null;
+          showAlert(alertBox, editingItem ? 'Education updated.' : 'Education added.', 'success');
+          if (await loadProfile()) renderPanel();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = submitLabel;
+        }
       },
     }, [
       el('h3', { className: 'card-title', textContent: editingItem ? 'Edit Education' : 'Add Education' }),
@@ -373,7 +420,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ]),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Academic honours, thesis, or coursework' }), achIn]),
       el('div', { style: 'display: flex; gap: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: editingItem ? 'Save Changes' : 'Add Education' }),
+        submitBtn,
         editingItem
           ? el('button', { type: 'button', className: 'btn btn-secondary', textContent: 'Cancel Edit', onClick: () => { editingId = null; renderPanel(); } })
           : null,
@@ -399,10 +446,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               className: 'chip-remove',
               'aria-label': `Delete ${sk.skill_name}`,
               textContent: '×',
-              onClick: async () => {
-                await authApiRequest(session, `/api/profile/skills/${sk.id}`, { method: 'DELETE' });
-                await loadProfile();
-                renderPanel();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/profile/skills/${sk.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message || 'Could not delete skill.', 'error');
+                  if (await loadProfile()) renderPanel();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ])
@@ -420,19 +473,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
     const profIn = el('input', { type: 'text', className: 'form-input', placeholder: 'Optional: Advanced / Proficient' });
 
+    const saveBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Skill' });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saveBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/skills', {
-          method: 'POST',
-          body: JSON.stringify({ skill_name: nameIn.value.trim(), skill_category: catSel.value, proficiency: profIn.value.trim() }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        showAlert(alertBox, 'Skill saved.', 'success');
-        await loadProfile();
-        renderPanel();
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/skills', {
+            method: 'POST',
+            body: JSON.stringify({ skill_name: nameIn.value.trim(), skill_category: catSel.value, proficiency: profIn.value.trim() }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          showAlert(alertBox, 'Skill saved.', 'success');
+          if (await loadProfile()) renderPanel();
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Skill';
+        }
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Add Confirmed Skill' }),
@@ -441,7 +502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Category' }), catSel]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Proficiency' }), profIn]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Skill' })]),
+      el('div', {}, [saveBtn]),
     ]);
 
     panel.appendChild(chips);
@@ -470,11 +531,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-danger btn-sm',
                 textContent: 'Delete',
-                onClick: async () => {
-                  await authApiRequest(session, `/api/profile/projects/${pr.id}`, { method: 'DELETE' });
-                  if (editingId === pr.id) editingId = null;
-                  await loadProfile();
-                  renderPanel();
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const res = await authApiRequest(session, `/api/profile/projects/${pr.id}`, { method: 'DELETE' });
+                    if (!res.success) return showAlert(alertBox, res.message || 'Could not delete project.', 'error');
+                    if (editingId === pr.id) editingId = null;
+                    if (await loadProfile()) renderPanel();
+                  } finally {
+                    btn.disabled = false;
+                  }
                 },
               }),
             ]),
@@ -491,29 +558,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     contribIn.value = (editingItem && editingItem.personal_contribution) || '';
     const toolsIn = el('input', { type: 'text', className: 'form-input', value: editingItem ? (editingItem.tools || []).join(', ') : '', placeholder: 'Python, Flask, PostgreSQL' });
 
+    const submitLabel = editingItem ? 'Save Changes' : 'Add Project';
+    const submitBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: submitLabel });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (submitBtn.disabled) return;
         clearAlert(alertBox);
-        const tools = toolsIn.value.split(',').map((t) => t.trim()).filter(Boolean);
-        const method = editingItem ? 'PUT' : 'POST';
-        const url = editingItem ? `/api/profile/projects/${editingItem.id}` : '/api/profile/projects';
-        const res = await authApiRequest(session, url, {
-          method,
-          body: JSON.stringify({
-            project_title: titleIn.value.trim(),
-            description: descIn.value.trim(),
-            personal_contribution: contribIn.value.trim(),
-            tools,
-            project_url: urlIn.value.trim(),
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        editingId = null;
-        showAlert(alertBox, editingItem ? 'Project updated.' : 'Project added.', 'success');
-        await loadProfile();
-        renderPanel();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        try {
+          const tools = toolsIn.value.split(',').map((t) => t.trim()).filter(Boolean);
+          const method = editingItem ? 'PUT' : 'POST';
+          const url = editingItem ? `/api/profile/projects/${editingItem.id}` : '/api/profile/projects';
+          const res = await authApiRequest(session, url, {
+            method,
+            body: JSON.stringify({
+              project_title: titleIn.value.trim(),
+              description: descIn.value.trim(),
+              personal_contribution: contribIn.value.trim(),
+              tools,
+              project_url: urlIn.value.trim(),
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          editingId = null;
+          showAlert(alertBox, editingItem ? 'Project updated.' : 'Project added.', 'success');
+          if (await loadProfile()) renderPanel();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = submitLabel;
+        }
       },
     }, [
       el('h3', { className: 'card-title', textContent: editingItem ? 'Edit Project' : 'Add Project' }),
@@ -527,7 +603,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Tools & technologies (comma-separated)' }), toolsIn]),
       ]),
       el('div', { style: 'display: flex; gap: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: editingItem ? 'Save Changes' : 'Add Project' }),
+        submitBtn,
         editingItem
           ? el('button', { type: 'button', className: 'btn btn-secondary', textContent: 'Cancel Edit', onClick: () => { editingId = null; renderPanel(); } })
           : null,
@@ -559,11 +635,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 type: 'button',
                 className: 'btn btn-danger btn-sm',
                 textContent: 'Delete',
-                onClick: async () => {
-                  await authApiRequest(session, `/api/profile/certifications/${ct.id}`, { method: 'DELETE' });
-                  if (editingId === ct.id) editingId = null;
-                  await loadProfile();
-                  renderPanel();
+                onClick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const res = await authApiRequest(session, `/api/profile/certifications/${ct.id}`, { method: 'DELETE' });
+                    if (!res.success) return showAlert(alertBox, res.message || 'Could not delete certification.', 'error');
+                    if (editingId === ct.id) editingId = null;
+                    if (await loadProfile()) renderPanel();
+                  } finally {
+                    btn.disabled = false;
+                  }
                 },
               }),
             ]),
@@ -577,27 +659,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dateIn = el('input', { type: 'date', className: 'form-input', value: (editingItem && editingItem.issue_date) || '' });
     const urlIn = el('input', { type: 'url', className: 'form-input', value: (editingItem && editingItem.credential_url) || '', placeholder: 'https://...' });
 
+    const submitLabel = editingItem ? 'Save Changes' : 'Add Certification';
+    const submitBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: submitLabel });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (submitBtn.disabled) return;
         clearAlert(alertBox);
-        const method = editingItem ? 'PUT' : 'POST';
-        const url = editingItem ? `/api/profile/certifications/${editingItem.id}` : '/api/profile/certifications';
-        const res = await authApiRequest(session, url, {
-          method,
-          body: JSON.stringify({
-            certification_name: nameIn.value.trim(),
-            issuing_organisation: orgIn.value.trim(),
-            issue_date: dateIn.value,
-            credential_url: urlIn.value.trim(),
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        editingId = null;
-        showAlert(alertBox, editingItem ? 'Certification updated.' : 'Certification added.', 'success');
-        await loadProfile();
-        renderPanel();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        try {
+          const method = editingItem ? 'PUT' : 'POST';
+          const url = editingItem ? `/api/profile/certifications/${editingItem.id}` : '/api/profile/certifications';
+          const res = await authApiRequest(session, url, {
+            method,
+            body: JSON.stringify({
+              certification_name: nameIn.value.trim(),
+              issuing_organisation: orgIn.value.trim(),
+              issue_date: dateIn.value,
+              credential_url: urlIn.value.trim(),
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          editingId = null;
+          showAlert(alertBox, editingItem ? 'Certification updated.' : 'Certification added.', 'success');
+          if (await loadProfile()) renderPanel();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = submitLabel;
+        }
       },
     }, [
       el('h3', { className: 'card-title', textContent: editingItem ? 'Edit Certification' : 'Add Certification' }),
@@ -610,7 +701,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Credential URL' }), urlIn]),
       ]),
       el('div', { style: 'display: flex; gap: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: editingItem ? 'Save Changes' : 'Add Certification' }),
+        submitBtn,
         editingItem
           ? el('button', { type: 'button', className: 'btn btn-secondary', textContent: 'Cancel Edit', onClick: () => { editingId = null; renderPanel(); } })
           : null,

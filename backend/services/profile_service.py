@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_secret_client, get_user_client
 from utils.errors import ServiceUnavailableError
 
 
@@ -16,9 +16,9 @@ def handle_supabase_error(exc: Exception) -> None:
         raise ServiceUnavailableError(
             "Database schema is not initialized yet. Execute the Supabase SQL schema and migrations first."
         ) from exc
-    if "permission denied" in lower or "42501" in lower:
+    if "permission denied" in lower or "42501" in lower or "row-level security" in lower:
         raise ServiceUnavailableError(
-            "Database role permissions are incomplete. Execute migration 003_grants_and_permissions.sql in Supabase."
+            "Database permissions or RLS policies require migration 003 and rls_policies.sql in Supabase."
         ) from exc
     raise exc
 
@@ -97,15 +97,15 @@ def compute_profile_completion(
     }
 
 
-def get_full_profile(user_id: str) -> dict[str, Any]:
-    """Fetch complete confirmed career profile and computed completion metrics for a user."""
-    client = get_secret_client()
+def get_full_profile(user_id: str, client: Any = None) -> dict[str, Any]:
+    """Fetch complete confirmed career profile and computed completion metrics under user RLS."""
+    db = client or get_user_client()
     try:
-        profile_res = client.table("profiles").select("*").eq("id", user_id).limit(1).execute()
+        profile_res = db.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         profile = (profile_res.data or [{}])[0]
 
         exp_res = (
-            client.table("career_experience")
+            db.table("career_experience")
             .select("*")
             .eq("user_id", user_id)
             .order("is_current", desc=True)
@@ -113,14 +113,14 @@ def get_full_profile(user_id: str) -> dict[str, Any]:
             .execute()
         )
         edu_res = (
-            client.table("education")
+            db.table("education")
             .select("*")
             .eq("user_id", user_id)
             .order("end_date", desc=True)
             .execute()
         )
         skills_res = (
-            client.table("skills")
+            db.table("skills")
             .select("*")
             .eq("user_id", user_id)
             .order("skill_category")
@@ -128,14 +128,14 @@ def get_full_profile(user_id: str) -> dict[str, Any]:
             .execute()
         )
         projects_res = (
-            client.table("projects")
+            db.table("projects")
             .select("*")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .execute()
         )
         certs_res = (
-            client.table("certifications")
+            db.table("certifications")
             .select("*")
             .eq("user_id", user_id)
             .order("issue_date", desc=True)

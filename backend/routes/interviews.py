@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from routes.jobs import _summarize_confirmed_profile
 from services.gemini_service import GeminiService
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
 from utils.errors import NotFoundError, ValidationError, success_response
@@ -68,7 +68,7 @@ def generate_interview_prep():
         raise ValidationError("Select a valid saved job opportunity first.")
 
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         job_res = (
             client.table("job_opportunities")
@@ -178,7 +178,7 @@ def generate_interview_prep():
 @require_auth(require_verified_email=True)
 def list_interviews():
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         sess_res = (
             client.table("interview_sessions")
@@ -214,7 +214,7 @@ def interview_detail(session_id: str):
     if not is_valid_uuid(session_id):
         raise ValidationError("Invalid interview session ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:

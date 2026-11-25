@@ -45,32 +45,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderReviewPanel();
   }
 
+  let uploading = false;
+
   async function handleFileUpload(file) {
-    if (!file) return;
+    if (!file || uploading) return;
+    uploading = true;
     clearAlert(alertBox);
     uploadStatus.textContent = `Uploading "${file.name}"...`;
 
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await authApiRequest(session, '/api/cv/upload', {
-      method: 'POST',
-      body: formData,
-    });
+    try {
+      const res = await authApiRequest(session, '/api/cv/upload', {
+        method: 'POST',
+        body: formData,
+        onSlowRequest: () => {
+          uploadStatus.textContent = `Uploading "${file.name}" (waking backend / extracting text)...`;
+        },
+      });
 
-    uploadStatus.textContent = '';
-    if (!res.success) {
-      showAlert(alertBox, res.message || 'Upload failed.', 'error');
-      return;
-    }
+      uploadStatus.textContent = '';
+      if (!res.success) {
+        showAlert(alertBox, res.message || 'Upload failed.', 'error');
+        return;
+      }
 
-    const item = res.data && res.data.item;
-    if (res.data && res.data.readable === false) {
-      showAlert(alertBox, res.data.reason || 'Uploaded file could not be read for text.', 'error');
-    } else {
-      showAlert(alertBox, 'CV uploaded securely. Click "Parse with AI" to extract career details for review.', 'success');
+      const item = res.data && res.data.item;
+      if (res.data && res.data.readable === false) {
+        showAlert(alertBox, res.data.reason || 'Uploaded file could not be read for text.', 'error');
+      } else {
+        showAlert(alertBox, 'CV uploaded securely. Click "Parse with AI" to extract career details for review.', 'success');
+      }
+      await loadHistory(item ? item.id : null);
+    } finally {
+      uploading = false;
+      uploadStatus.textContent = '';
     }
-    await loadHistory(item ? item.id : null);
   }
 
   function renderHistory() {
@@ -113,11 +124,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             type: 'button',
             className: 'btn btn-danger btn-sm',
             textContent: 'Delete',
-            onClick: async () => {
-              const res = await authApiRequest(session, `/api/cv/${cv.id}`, { method: 'DELETE' });
-              if (!res.success) return showAlert(alertBox, res.message, 'error');
-              if (selectedCv && selectedCv.id === cv.id) selectedCv = null;
-              await loadHistory();
+            onClick: async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              try {
+                const res = await authApiRequest(session, `/api/cv/${cv.id}`, { method: 'DELETE' });
+                if (!res.success) return showAlert(alertBox, res.message, 'error');
+                if (selectedCv && selectedCv.id === cv.id) selectedCv = null;
+                await loadHistory();
+              } finally {
+                btn.disabled = false;
+              }
             },
           }),
         ]),
@@ -161,21 +178,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         textContent: parsed ? 'Re-parse with AI' : 'Parse with AI',
         onClick: async (e) => {
           const btn = e.currentTarget;
+          if (btn.disabled) return;
           btn.disabled = true;
           btn.textContent = 'Parsing CV...';
           clearAlert(alertBox);
-          const res = await authApiRequest(session, '/api/cv/parse', {
-            method: 'POST',
-            body: JSON.stringify({ cv_id: selectedCv.id }),
-          });
-          if (!res.success) {
-            showAlert(alertBox, res.message || 'AI parsing failed.', 'error');
+          try {
+            const res = await authApiRequest(session, '/api/cv/parse', {
+              method: 'POST',
+              body: JSON.stringify({ cv_id: selectedCv.id }),
+              onSlowRequest: () => {
+                showAlert(
+                  alertBox,
+                  'Parsing CV with AI... (this may take up to a minute if the backend is waking up).',
+                  'info'
+                );
+              },
+            });
+            if (!res.success) {
+              showAlert(alertBox, res.message || 'AI parsing failed.', 'error');
+              return;
+            }
+            showAlert(alertBox, res.message, 'success');
+            await loadHistory(selectedCv.id);
+          } finally {
             btn.disabled = false;
             btn.textContent = parsed ? 'Re-parse with AI' : 'Parse with AI';
-            return;
           }
-          showAlert(alertBox, res.message, 'success');
-          await loadHistory(selectedCv.id);
         },
       }),
     ]);
@@ -204,41 +232,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     const projChecks = (parsed.projects || []).map((item) => ({ item, chk: el('input', { type: 'checkbox', checked: true }) }));
     const certChecks = (parsed.certifications || []).map((item) => ({ item, chk: el('input', { type: 'checkbox', checked: true }) }));
 
+    const mergeBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Confirm & Merge into Career Profile' });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (mergeBtn.disabled) return;
         clearAlert(alertBox);
-        const payload = {
-          cv_id: selectedCv.id,
-          overwrite_existing_fields: overwriteChk.checked,
-          personal_details: includePersonalChk.checked ? parsed.personal_details || {} : {},
-          professional_summary: includeSummaryChk.checked ? parsed.professional_summary || '' : '',
-          career_objective: includeSummaryChk.checked ? parsed.career_objective || '' : '',
-          languages: includePersonalChk.checked ? parsed.languages || [] : [],
-          experience: expChecks.filter((x) => x.chk.checked).map((x) => x.item),
-          education: eduChecks.filter((x) => x.chk.checked).map((x) => x.item),
-          skills: skillChecks.filter((x) => x.chk.checked).map((x) => x.item),
-          projects: projChecks.filter((x) => x.chk.checked).map((x) => x.item),
-          certifications: certChecks.filter((x) => x.chk.checked).map((x) => x.item),
-          mark_fully_confirmed: true,
-        };
+        mergeBtn.disabled = true;
+        mergeBtn.textContent = 'Merging...';
+        try {
+          const payload = {
+            cv_id: selectedCv.id,
+            overwrite_existing_fields: overwriteChk.checked,
+            personal_details: includePersonalChk.checked ? parsed.personal_details || {} : {},
+            professional_summary: includeSummaryChk.checked ? parsed.professional_summary || '' : '',
+            career_objective: includeSummaryChk.checked ? parsed.career_objective || '' : '',
+            languages: includePersonalChk.checked ? parsed.languages || [] : [],
+            experience: expChecks.filter((x) => x.chk.checked).map((x) => x.item),
+            education: eduChecks.filter((x) => x.chk.checked).map((x) => x.item),
+            skills: skillChecks.filter((x) => x.chk.checked).map((x) => x.item),
+            projects: projChecks.filter((x) => x.chk.checked).map((x) => x.item),
+            certifications: certChecks.filter((x) => x.chk.checked).map((x) => x.item),
+            mark_fully_confirmed: true,
+          };
 
-        const res = await authApiRequest(session, '/api/cv/confirm', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message || 'Merge failed.', 'error');
-          return;
+          const res = await authApiRequest(session, '/api/cv/confirm', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message || 'Merge failed.', 'error');
+            return;
+          }
+          const counts = (res.data && res.data.merged_counts) || {};
+          showAlert(
+            alertBox,
+            `Merged confirmed records into Career Profile (${counts.experience || 0} experience, ${counts.education || 0} education, ${counts.skills || 0} skills, ${counts.projects || 0} projects, ${counts.certifications || 0} certifications).`,
+            'success'
+          );
+          await loadHistory(selectedCv.id);
+        } finally {
+          mergeBtn.disabled = false;
+          mergeBtn.textContent = 'Confirm & Merge into Career Profile';
         }
-        const counts = (res.data && res.data.merged_counts) || {};
-        showAlert(
-          alertBox,
-          `Merged confirmed records into Career Profile (${counts.experience || 0} experience, ${counts.education || 0} education, ${counts.skills || 0} skills, ${counts.projects || 0} projects, ${counts.certifications || 0} certifications).`,
-          'success'
-        );
-        await loadHistory(selectedCv.id);
       },
     });
 
@@ -320,7 +357,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     form.appendChild(
       el('div', { style: 'display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Confirm & Merge into Career Profile' }),
+        mergeBtn,
         el('a', { href: '/profile.html', className: 'btn btn-secondary', textContent: 'Open Career Profile' }),
       ])
     );

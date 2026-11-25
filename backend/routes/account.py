@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, g, request
 
 from services.profile_service import handle_supabase_error
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_secret_client, get_user_client
 from utils.auth import require_auth
 from utils.errors import NotFoundError, ServiceUnavailableError, ValidationError, success_response
 from utils.validators import is_valid_uuid
 
+logger = logging.getLogger(__name__)
 account_bp = Blueprint("account", __name__)
 
 
@@ -34,8 +37,8 @@ def _purge_user_storage_bucket(client, bucket_name: str, user_id: str) -> None:
                 paths_to_remove.append(f"{user_id}/{name}")
         if paths_to_remove:
             client.storage.from_(bucket_name).remove(paths_to_remove)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Storage cleanup warning for bucket '%s' (user %s): %s", bucket_name, user_id, type(exc).__name__)
 
 
 @account_bp.get("/api/notifications")
@@ -44,7 +47,7 @@ def list_notifications():
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("notifications")
             .select("*")
             .eq("user_id", user_id)
@@ -71,7 +74,7 @@ def mark_notification_read(notif_id: str):
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("notifications")
             .update({"is_read": True})
             .eq("id", notif_id)
@@ -90,7 +93,7 @@ def mark_notification_read(notif_id: str):
 def mark_all_notifications_read():
     user_id = g.current_user.user_id
     try:
-        get_secret_client().table("notifications").update({"is_read": True}).eq("user_id", user_id).eq(
+        get_user_client().table("notifications").update({"is_read": True}).eq("user_id", user_id).eq(
             "is_read", False
         ).execute()
     except Exception as exc:  # noqa: BLE001

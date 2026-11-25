@@ -108,11 +108,17 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Delete',
-              onClick: async () => {
-                const res = await authApiRequest(session, `/api/interviews/${sess.id}`, { method: 'DELETE' });
-                if (!res.success) return showAlert(alertBox, res.message, 'error');
-                if (selectedSession && selectedSession.id === sess.id) selectedSession = null;
-                await loadSessions();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/interviews/${sess.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message, 'error');
+                  if (selectedSession && selectedSession.id === sess.id) selectedSession = null;
+                  await loadSessions();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ]),
@@ -144,22 +150,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
     detailPanel.appendChild(header);
 
+    const saveBtn = el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Practice Answers' });
     const form = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saveBtn.disabled) return;
         clearAlert(alertBox);
-        const payloadAnswers = {};
-        Object.entries(answerInputs).forEach(([qid, area]) => {
-          payloadAnswers[qid] = area.value.trim();
-        });
-        const res = await authApiRequest(session, `/api/interviews/${selectedSession.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ practice_answers: payloadAnswers }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        showAlert(alertBox, 'Practice answers saved.', 'success');
-        await loadSessions(selectedSession.id);
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+          const payloadAnswers = {};
+          Object.entries(answerInputs).forEach(([qid, area]) => {
+            payloadAnswers[qid] = area.value.trim();
+          });
+          const res = await authApiRequest(session, `/api/interviews/${selectedSession.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ practice_answers: payloadAnswers }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          showAlert(alertBox, 'Practice answers saved.', 'success');
+          await loadSessions(selectedSession.id);
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Practice Answers';
+        }
       },
     });
 
@@ -197,34 +212,40 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
 
-    form.appendChild(
-      el('div', { style: 'margin-top: 0.75rem;' }, [
-        el('button', { type: 'submit', className: 'btn btn-primary', textContent: 'Save Practice Answers' }),
-      ])
-    );
+    form.appendChild(el('div', { style: 'margin-top: 0.75rem;' }, [saveBtn]));
 
     detailPanel.appendChild(form);
   }
 
+  let generating = false;
+
   genForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (generating) return;
     clearAlert(alertBox);
     if (!jobSelect.value) return;
 
+    generating = true;
     genBtn.disabled = true;
     genBtn.textContent = 'Generating Questions...';
 
-    const res = await authApiRequest(session, '/api/interviews/generate', {
-      method: 'POST',
-      body: JSON.stringify({ job_opportunity_id: jobSelect.value }),
-    });
+    try {
+      const res = await authApiRequest(session, '/api/interviews/generate', {
+        method: 'POST',
+        body: JSON.stringify({ job_opportunity_id: jobSelect.value }),
+        onSlowRequest: () => {
+          showAlert(alertBox, 'Generating tailored interview questions from your profile and target role...', 'info');
+        },
+      });
 
-    genBtn.disabled = false;
-    genBtn.textContent = 'Generate Practice Questions';
-
-    if (!res.success) return showAlert(alertBox, res.message, 'error');
-    showAlert(alertBox, 'Interview preparation questions ready.', 'success');
-    await loadSessions(res.data && res.data.item && res.data.item.id);
+      if (!res.success) return showAlert(alertBox, res.message, 'error');
+      showAlert(alertBox, 'Interview preparation questions ready.', 'success');
+      await loadSessions(res.data && res.data.item && res.data.item.id);
+    } finally {
+      generating = false;
+      genBtn.disabled = false;
+      genBtn.textContent = 'Generate Practice Questions';
+    }
   });
 
   await loadJobs();

@@ -8,14 +8,19 @@ from typing import Any
 from flask import Blueprint, Response, current_app, g, request
 from pydantic import BaseModel, Field
 
-from routes.jobs import _summarize_confirmed_profile
+from routes.jobs import (
+    _summarize_confirmed_profile,
+    run_compatibility_for_opportunity,
+    run_job_analysis_for_opportunity,
+)
 from services.document_export_service import render_document_docx, render_document_pdf
 from services.gemini_service import GeminiService
+from services.grounding_service import verify_document_grounding
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
-from utils.errors import NotFoundError, ValidationError, success_response
+from utils.errors import AppError, NotFoundError, RateLimitError, ValidationError, success_response
 from utils.security import sanitize_filename
 from utils.validators import is_valid_uuid
 
@@ -91,7 +96,7 @@ def _suggest_document_types(requested_docs: list[str], has_screening: bool) -> l
 @documents_bp.post("/generate")
 @require_auth(require_verified_email=True)
 def generate_documents():
-    """Generate one or more tailored drafts grounded strictly in confirmed profile facts."""
+    """Generate tailored drafts grounded strictly in confirmed profile facts."""
     payload = request.get_json(silent=True) or {}
     user_id = g.current_user.user_id
     mode = str(payload.get("mode") or "guided").strip().lower()
@@ -109,7 +114,7 @@ def generate_documents():
     extra_context = str(payload.get("additional_context") or "").strip()[:2500]
     job_id = str(payload.get("job_opportunity_id") or "").strip() or None
 
-    client = get_secret_client()
+    client = get_user_client()
     job_row = None
     analysis_row = None
 
@@ -134,20 +139,7 @@ def generate_documents():
         except Exception as exc:  # noqa: BLE001
             handle_supabase_error(exc)
 
-    requested_types = payload.get("document_types")
-    if mode == "quick" and (not isinstance(requested_types, list) or not requested_types):
-        req_docs = ((analysis_row or {}).get("structured_analysis") or {}).get("requested_documents") or []
-        has_qs = bool((job_row or {}).get("screening_questions"))
-        doc_types = _suggest_document_types(req_docs, has_qs)
-    else:
-        if not isinstance(requested_types, list) or not requested_types:
-            doc_types = ["cv"]
-        else:
-            doc_types = [str(t).strip() for t in requested_types if str(t).strip() in VALID_DOC_TYPES]
-            if not doc_types:
-                raise ValidationError("Select at least one valid document type.")
-
-    profile_bundle = get_full_profile(user_id)
+    profile_bundle = get_full_profile(user_id, client=client)
     profile_summary = _summarize_confirmed_profile(profile_bundle)
     if not (
         profile_summary.get("experience")
@@ -161,14 +153,73 @@ def generate_documents():
         )
 
     enforce_daily_ai_quota(user_id)
+
+    auto_ran_steps: list[str] = []
+    warnings: list[str] = []
+
+    # Quick Generate pipeline: ensure job analysis + compatibility check are executed if missing
+    if mode == "quick" and job_row is not None:
+        if not analysis_row or not (analysis_row.get("structured_analysis") or {}):
+            try:
+                job_row, analysis_row = run_job_analysis_for_opportunity(
+                    client=client,
+                    user_id=user_id,
+                    job_row=job_row,
+                )
+                auto_ran_steps.append("job_analysis")
+            except RateLimitError:
+                raise
+            except AppError as exc:
+                warnings.append(f"Automatic job analysis skipped ({exc.message}); generating from raw job description.")
+
+        if not (analysis_row or {}).get("compatibility_results"):
+            try:
+                analysis_row, _ = run_compatibility_for_opportunity(
+                    client=client,
+                    user_id=user_id,
+                    job_row=job_row,
+                    analysis_row=analysis_row,
+                    profile_bundle=profile_bundle,
+                )
+                auto_ran_steps.append("compatibility_check")
+            except RateLimitError:
+                raise
+            except AppError as exc:
+                warnings.append(f"Automatic compatibility check skipped ({exc.message}).")
+
+    requested_types = payload.get("document_types")
+    if mode == "quick" and (not isinstance(requested_types, list) or not requested_types):
+        req_docs = ((analysis_row or {}).get("structured_analysis") or {}).get("requested_documents") or []
+        has_qs = bool((job_row or {}).get("screening_questions"))
+        doc_types = _suggest_document_types(req_docs, has_qs)
+    else:
+        if not isinstance(requested_types, list) or not requested_types:
+            doc_types = ["cv"]
+        else:
+            doc_types = list(dict.fromkeys(str(t).strip() for t in requested_types if str(t).strip() in VALID_DOC_TYPES))
+            if not doc_types:
+                raise ValidationError("Select at least one valid document type.")
+
     cfg = current_app.config["APP_CONFIG"]
     service = GeminiService.from_app_config()
 
     created_docs: list[dict[str, Any]] = []
+    failed_items: list[dict[str, str]] = []
     target_role = (job_row or {}).get("job_title") or "Target Role"
     target_company = (job_row or {}).get("company_name") or ""
+    compat_results = (analysis_row or {}).get("compatibility_results") or {}
 
-    for doc_type in doc_types[:4]:
+    for idx, doc_type in enumerate(doc_types):
+        try:
+            enforce_daily_ai_quota(user_id)
+        except RateLimitError as exc:
+            if created_docs:
+                for skipped_type in doc_types[idx:]:
+                    failed_items.append({"document_type": skipped_type, "reason": exc.message})
+                warnings.append(exc.message)
+                break
+            raise
+
         task_instruction = (
             f"Generate a polished, recruitment-ready '{doc_type}' draft in a '{tone}' tone formatted cleanly for the '{template}' style. "
             "CRITICAL NON-FABRICATION RULE: You may ONLY use facts, employers, titles, dates, degrees, certifications, skills, projects, "
@@ -176,7 +227,7 @@ def generate_documents():
             "NEVER invent metrics, percentages, employers, job titles, skills, tools, or degrees. "
             "Populate header fields from CONFIRMED_PROFILE contact details. For CVs, organize clear sections (Experience, Education, Skills, Projects, Certifications) using entries/bullets. "
             "For letters, statements, bios, or screening responses, write clear structured sections and/or paragraphs and closing. "
-            "Include 1–3 factual grounding_notes stating which confirmed profile records supported this draft."
+            "Include 1-3 factual grounding_notes stating which confirmed profile records supported this draft."
         )
 
         prompt_data = {
@@ -188,6 +239,12 @@ def generate_documents():
                 "job_title": target_role,
                 "company_name": target_company,
                 "structured_analysis": (analysis_row or {}).get("structured_analysis") or {},
+                "compatibility_highlights": {
+                    "recommended_emphasis": compat_results.get("recommended_emphasis") or [],
+                    "matching_skills": compat_results.get("matching_skills") or [],
+                }
+                if compat_results
+                else {},
                 "screening_questions": (job_row or {}).get("screening_questions") or [],
                 "raw_excerpt": ((job_row or {}).get("original_job_description") or "")[:6000],
             },
@@ -222,6 +279,15 @@ def generate_documents():
                 "closing": generated.get("closing") or "",
             }
 
+            grounding_report = verify_document_grounding(
+                structured_content=structured_content,
+                doc_type=doc_type,
+                profile_bundle=profile_bundle,
+                job_row=job_row,
+                analysis_row=analysis_row,
+                extra_context=extra_context,
+            )
+
             readable_type = doc_type.replace("_", " ").title()
             default_title = (
                 f"{readable_type} — {target_role}" + (f" ({target_company})" if target_company else "")
@@ -229,6 +295,16 @@ def generate_documents():
                 else f"{readable_type} Draft"
             )
             doc_title = str(generated.get("document_title") or default_title).strip()[:180]
+
+            validation_info = {
+                "grounded_in_confirmed_profile": grounding_report["verification_status"] == "verified",
+                "verification_status": grounding_report["verification_status"],
+                "grounding_notes": generated.get("grounding_notes") or [],
+                "grounding_report": grounding_report,
+                "tone": tone,
+                "mode": mode,
+                "auto_ran_steps": auto_ran_steps,
+            }
 
             inserted_doc = client.table("generated_documents").insert(
                 {
@@ -239,12 +315,7 @@ def generate_documents():
                     "structured_content": structured_content,
                     "template": template,
                     "document_status": "draft",
-                    "validation_info": {
-                        "grounded_in_confirmed_profile": True,
-                        "grounding_notes": generated.get("grounding_notes") or [],
-                        "tone": tone,
-                        "mode": mode,
-                    },
+                    "validation_info": validation_info,
                     "current_version": 1,
                 }
             ).execute()
@@ -272,13 +343,18 @@ def generate_documents():
                 completion_tokens=getattr(usage, "candidates_token_count", None),
                 total_tokens=getattr(usage, "total_token_count", None),
             )
-        except Exception:
+        except Exception as exc:
             record_usage(
                 user_id=user_id,
                 operation_type=f"generate_{doc_type}",
                 ai_model=cfg.GEMINI_MODEL,
                 request_status="failed",
             )
+            if created_docs:
+                err_msg = getattr(exc, "message", None) or "Generation failed for this document type."
+                failed_items.append({"document_type": doc_type, "reason": err_msg})
+                warnings.append(f"{doc_type.replace('_', ' ').title()}: {err_msg}")
+                continue
             raise
 
     record_notification(
@@ -286,10 +362,23 @@ def generate_documents():
         "document_generated",
         f"Generated {len(created_docs)} application document draft(s).",
     )
+    partial = len(failed_items) > 0
+    msg = (
+        f"Generated {len(created_docs)} draft(s) cleanly, while {len(failed_items)} item(s) could not be completed."
+        if partial
+        else f"Generated {len(created_docs)} tailored draft(s). Review grounding checks and approve before exporting."
+    )
     return success_response(
-        data={"items": created_docs},
-        message=f"Generated {len(created_docs)} tailored draft(s). Review and approve before exporting.",
-        status_code=201,
+        data={
+            "items": created_docs,
+            "failed_items": failed_items,
+            "partial": partial,
+            "warnings": warnings,
+            "auto_ran_steps": auto_ran_steps,
+            "compatibility": compat_results or None,
+        },
+        message=msg,
+        status_code=207 if partial else 201,
     )
 
 
@@ -304,7 +393,7 @@ def list_documents():
 
     try:
         query = (
-            get_secret_client()
+            get_user_client()
             .table("generated_documents")
             .select("*")
             .eq("user_id", user_id)
@@ -337,7 +426,7 @@ def document_detail(doc_id: str):
     if not is_valid_uuid(doc_id):
         raise ValidationError("Invalid document ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:
@@ -425,7 +514,7 @@ def approve_document(doc_id: str):
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("generated_documents")
             .update({"document_status": "approved"})
             .eq("id", doc_id)
@@ -447,7 +536,7 @@ def list_document_versions(doc_id: str):
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("document_versions")
             .select("*")
             .eq("document_id", doc_id)
@@ -472,7 +561,7 @@ def restore_document_version(doc_id: str):
         raise ValidationError("Valid version_number is required.") from exc
 
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
     try:
         doc_res = client.table("generated_documents").select("*").eq("id", doc_id).eq("user_id", user_id).limit(1).execute()
         if not doc_res.data:
@@ -539,7 +628,7 @@ def export_document(doc_id: str):
     user_id = g.current_user.user_id
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("generated_documents")
             .select("*")
             .eq("id", doc_id)

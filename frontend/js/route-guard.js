@@ -1,7 +1,8 @@
 /**
- * CareerCraft AI — Protected Route Guard, Loading Gate & Error Recovery
+ * CareerCraft AI — Protected Route Guard, Cold-Start Recovery & Loading Gate
  * Guards all protected pages: never renders protected UI before verified auth,
- * always removes loading screen upon success, and provides error/retry state on failure.
+ * tolerates >60s Render free-tier wakes with progressive feedback and cancellation,
+ * and always clears the loading gate upon completion or failure.
  */
 
 import {
@@ -12,14 +13,60 @@ import {
 } from './supabase-client.js';
 import { initWorkspaceShell } from './workspace-shell.js';
 
-function withTimeout(promise, ms, label = 'Request timed out') {
+let authListenerAttached = false;
+
+function withTimeout(promise, ms, label = 'Request timed out', signal = null) {
   let timerId = null;
-  const timeoutPromise = new Promise((_, reject) => {
+  let onAbort = null;
+  const guardPromise = new Promise((_, reject) => {
     timerId = setTimeout(() => reject(new Error(label)), ms);
+    if (signal) {
+      if (signal.aborted) {
+        reject(Object.assign(new Error('Verification cancelled.'), { name: 'AbortError' }));
+        return;
+      }
+      onAbort = () => reject(Object.assign(new Error('Verification cancelled.'), { name: 'AbortError' }));
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
   });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
+  return Promise.race([promise, guardPromise]).finally(() => {
     if (timerId) clearTimeout(timerId);
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
   });
+}
+
+function attachGateCancelControl(loadingGate, controller) {
+  if (!loadingGate) return;
+  const card = loadingGate.querySelector('.auth-gate-card');
+  if (!card || card.querySelector('[data-gate-cancel]')) return;
+
+  const copyEl = card.querySelector('.card-text');
+  const btnWrap = document.createElement('div');
+  btnWrap.style.marginTop = '1rem';
+  btnWrap.style.display = 'flex';
+  btnWrap.style.justifyContent = 'center';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-secondary btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.setAttribute('data-gate-cancel', '1');
+  cancelBtn.addEventListener('click', () => {
+    cancelBtn.disabled = true;
+    if (copyEl) copyEl.textContent = 'Cancelling verification...';
+    controller.abort();
+  });
+
+  btnWrap.appendChild(cancelBtn);
+  card.appendChild(btnWrap);
+}
+
+function updateGateStatus(loadingGate, message) {
+  if (!loadingGate || !message) return;
+  const copyEl = loadingGate.querySelector('.card-text');
+  if (copyEl) {
+    copyEl.textContent = message;
+  }
 }
 
 function renderGateError(loadingGate, title, message, showSignIn = true) {
@@ -73,11 +120,17 @@ export async function enforceProtectedRoute() {
   if (appShell) appShell.hidden = true;
   if (loadingGate) loadingGate.hidden = false;
 
+  const gateController = new AbortController();
+  attachGateCancelControl(loadingGate, gateController);
+
+  const onSlowWake = (msg) => updateGateStatus(loadingGate, msg);
+
   try {
     const supabase = await withTimeout(
-      getSupabaseClient(),
-      16000,
-      'Loading authentication configuration timed out. The backend service may be waking up.'
+      getSupabaseClient({ signal: gateController.signal, onSlowLoad: onSlowWake }),
+      72000,
+      'Loading authentication configuration timed out while waiting for the backend service. Please retry.',
+      gateController.signal
     );
 
     if (!supabase) {
@@ -91,8 +144,9 @@ export async function enforceProtectedRoute() {
 
     const { data: sessionData, error: sessionError } = await withTimeout(
       supabase.auth.getSession(),
-      12000,
-      'Checking your session timed out.'
+      20000,
+      'Checking your local session timed out.',
+      gateController.signal
     );
     const session = sessionData && sessionData.session;
 
@@ -105,8 +159,9 @@ export async function enforceProtectedRoute() {
     // Verify user state directly against Supabase Auth server
     const { data: userData, error: userError } = await withTimeout(
       supabase.auth.getUser(),
-      12000,
-      'Verifying your account with Supabase Auth timed out.'
+      20000,
+      'Verifying your account with Supabase Auth timed out.',
+      gateController.signal
     );
     const user = userData && userData.user;
 
@@ -122,11 +177,27 @@ export async function enforceProtectedRoute() {
       return null;
     }
 
+    updateGateStatus(loadingGate, 'Synchronizing your verified CareerCraft AI workspace...');
+
     const profile = await withTimeout(
-      syncUserProfile(session, user),
-      18000,
-      'Verifying your profile with the backend timed out.'
+      syncUserProfile(session, user, {
+        signal: gateController.signal,
+        onSlowLoad: onSlowWake,
+        timeoutMs: 70000,
+      }),
+      72000,
+      'Verifying your profile with the backend service timed out (free hosting cold start may still be waking up). Please retry.',
+      gateController.signal
     );
+
+    if (profile && profile.cancelled) {
+      renderGateError(
+        loadingGate,
+        'Verification Cancelled',
+        'Session verification was cancelled. Click Retry whenever you are ready to load your workspace.'
+      );
+      return null;
+    }
 
     if (profile && profile.errorStatus === 401) {
       await supabase.auth.signOut().catch(() => {});
@@ -152,12 +223,15 @@ export async function enforceProtectedRoute() {
       return null;
     }
 
-    // Subscribe to auth state changes across tabs
-    supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        window.location.replace('/login.html?logged_out=1');
-      }
-    });
+    // Subscribe to auth state changes once per page load
+    if (!authListenerAttached) {
+      authListenerAttached = true;
+      supabase.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT') {
+          window.location.replace('/login.html?logged_out=1');
+        }
+      });
+    }
 
     // Render consistent 10-item sidebar + mobile drawer + logout handlers
     initWorkspaceShell({ user, profile });
@@ -174,6 +248,14 @@ export async function enforceProtectedRoute() {
 
     return { supabase, session, user, profile };
   } catch (err) {
+    if (err && err.name === 'AbortError') {
+      renderGateError(
+        loadingGate,
+        'Verification Cancelled',
+        'Workspace verification was cancelled. Click Retry to reconnect.'
+      );
+      return null;
+    }
     renderGateError(
       loadingGate,
       'Session Verification Timed Out',

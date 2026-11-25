@@ -8,7 +8,7 @@ from typing import Any
 from flask import Blueprint, g, request
 
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from utils.auth import require_auth
 from utils.errors import NotFoundError, ValidationError, success_response
 from utils.validators import is_safe_http_url, is_valid_uuid
@@ -148,7 +148,7 @@ def update_profile():
 
     user_id = g.current_user.user_id
     try:
-        get_secret_client().table("profiles").update(updates).eq("id", user_id).execute()
+        get_user_client().table("profiles").update(updates).eq("id", user_id).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)
 
@@ -182,7 +182,7 @@ def create_experience():
         "achievements": _clean_string_list(payload.get("achievements")),
     }
     try:
-        res = get_secret_client().table("career_experience").insert(row).execute()
+        res = get_user_client().table("career_experience").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)
     return success_response(data={"item": (res.data or [{}])[0]}, message="Work experience added.", status_code=201)
@@ -194,7 +194,7 @@ def mutate_experience(record_id: str):
     if not is_valid_uuid(record_id):
         raise ValidationError("Invalid experience record ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:
@@ -258,7 +258,7 @@ def create_education():
         "achievements": _clean_optional_text(payload.get("achievements"), 1000),
     }
     try:
-        res = get_secret_client().table("education").insert(row).execute()
+        res = get_user_client().table("education").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)
     return success_response(data={"item": (res.data or [{}])[0]}, message="Education record added.", status_code=201)
@@ -270,7 +270,7 @@ def mutate_education(record_id: str):
     if not is_valid_uuid(record_id):
         raise ValidationError("Invalid education record ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:
@@ -327,7 +327,7 @@ def create_skill():
     }
     try:
         res = (
-            get_secret_client()
+            get_user_client()
             .table("skills")
             .upsert(row, on_conflict="user_id,skill_name,skill_category")
             .execute()
@@ -343,7 +343,7 @@ def mutate_skill(record_id: str):
     if not is_valid_uuid(record_id):
         raise ValidationError("Invalid skill record ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:
@@ -397,7 +397,7 @@ def create_project():
         "project_url": project_url,
     }
     try:
-        res = get_secret_client().table("projects").insert(row).execute()
+        res = get_user_client().table("projects").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)
     return success_response(data={"item": (res.data or [{}])[0]}, message="Project added.", status_code=201)
@@ -409,7 +409,7 @@ def mutate_project(record_id: str):
     if not is_valid_uuid(record_id):
         raise ValidationError("Invalid project record ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:
@@ -466,7 +466,7 @@ def create_certification():
         "credential_url": cred_url,
     }
     try:
-        res = get_secret_client().table("certifications").insert(row).execute()
+        res = get_user_client().table("certifications").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         handle_supabase_error(exc)
     return success_response(data={"item": (res.data or [{}])[0]}, message="Certification added.", status_code=201)
@@ -478,7 +478,7 @@ def mutate_certification(record_id: str):
     if not is_valid_uuid(record_id):
         raise ValidationError("Invalid certification record ID.")
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:

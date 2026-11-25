@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, current_app, g
 
 from services.profile_service import handle_supabase_error
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from utils.auth import require_auth
 from utils.errors import success_response
 
@@ -21,7 +21,7 @@ def get_usage_summary():
     cfg = current_app.config["APP_CONFIG"]
     limit = cfg.AI_DAILY_REQUEST_LIMIT
     day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    client = get_secret_client()
+    client = get_user_client()
 
     try:
         today_res = (

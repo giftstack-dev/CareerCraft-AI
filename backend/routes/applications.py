@@ -8,7 +8,7 @@ from typing import Any
 from flask import Blueprint, g, request
 
 from services.profile_service import handle_supabase_error, record_notification
-from services.supabase_service import get_secret_client
+from services.supabase_service import get_user_client
 from utils.auth import require_auth
 from utils.errors import NotFoundError, ValidationError, success_response
 from utils.validators import is_valid_uuid
@@ -86,7 +86,7 @@ def list_applications():
     user_id = g.current_user.user_id
     status_filter = request.args.get("status", "").strip()
     search = request.args.get("search", "").strip().lower()
-    client = get_secret_client()
+    client = get_user_client()
 
     try:
         query = (
@@ -141,7 +141,7 @@ def create_application():
     if status not in APPLICATION_STATUSES:
         raise ValidationError(f"Status must be one of: {', '.join(APPLICATION_STATUSES)}.")
 
-    client = get_secret_client()
+    client = get_user_client()
     try:
         job_id = _validate_linked_job(client, user_id, str(payload.get("job_opportunity_id") or "").strip() or None)
         row = {
@@ -176,7 +176,7 @@ def application_detail(application_id: str):
         raise ValidationError("Invalid application ID.")
 
     user_id = g.current_user.user_id
-    client = get_secret_client()
+    client = get_user_client()
 
     if request.method == "DELETE":
         try:

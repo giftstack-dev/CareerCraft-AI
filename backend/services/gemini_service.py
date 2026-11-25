@@ -38,8 +38,25 @@ class GeminiService:
     def __init__(self, api_key: str, model: str, timeout_seconds: int = 45) -> None:
         self.api_key = api_key
         self.model = model
-        self.timeout_seconds = timeout_seconds
-        self._client = genai.Client(api_key=api_key) if api_key else None
+        self.timeout_seconds = max(int(timeout_seconds or 45), 5)
+        self._init_error: str | None = None
+        self._client = None
+
+        if api_key:
+            try:
+                http_options = None
+                if hasattr(types, "HttpOptions"):
+                    # google-genai HttpOptions timeout is in milliseconds in Python SDK 1.x
+                    http_options = types.HttpOptions(timeout=self.timeout_seconds * 1000)
+                self._client = (
+                    genai.Client(api_key=api_key, http_options=http_options)
+                    if http_options is not None
+                    else genai.Client(api_key=api_key)
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._init_error = type(exc).__name__
+                logger.warning("Gemini client initialisation failed safely: %s", self._init_error)
+                self._client = None
 
     @classmethod
     def from_app_config(cls) -> "GeminiService":
@@ -86,7 +103,7 @@ class GeminiService:
                 }
             except Exception as exc:  # noqa: BLE001 - mask raw SDK details safely
                 last_exc = exc
-                logger.warning("Gemini request attempt %s failed safely.", attempt + 1)
+                logger.warning("Gemini request attempt %s failed safely (%s).", attempt + 1, type(exc).__name__)
                 if attempt < max_retries:
                     time.sleep(min(2**attempt, 4))
 
@@ -96,6 +113,14 @@ class GeminiService:
 
     def verify_connectivity(self, run_generation_check: bool = True) -> dict[str, Any]:
         """Execute a live Gemini API check (model lookup + optional minimal generation)."""
+        if self._init_error:
+            return {
+                "connected": False,
+                "status": "error",
+                "model": self.model,
+                "generation_verified": False,
+                "error_type": self._init_error,
+            }
         if not self._client:
             return {
                 "connected": False,
@@ -125,10 +150,18 @@ class GeminiService:
                 "generation_verified": generation_verified,
             }
         except Exception as exc:  # noqa: BLE001 - mask key/raw SDK internals
-            logger.warning("Gemini live connectivity check failed: %s", type(exc).__name__)
+            err_msg = str(exc).lower()
+            status = "error"
+            if "not found" in err_msg or "404" in err_msg or "deprecated" in err_msg:
+                status = "model_unavailable"
+            elif "api key" in err_msg or "permission" in err_msg or "401" in err_msg or "403" in err_msg:
+                status = "auth_error"
+            elif "quota" in err_msg or "429" in err_msg or "resource_exhausted" in err_msg:
+                status = "rate_limited"
+            logger.warning("Gemini live connectivity check failed: %s (%s)", status, type(exc).__name__)
             return {
                 "connected": False,
-                "status": "error",
+                "status": status,
                 "model": self.model,
                 "generation_verified": False,
                 "error_type": type(exc).__name__,

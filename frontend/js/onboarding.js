@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function persistOnboardingState(status, stepNum, fullName) {
-    await authApiRequest(session, '/api/auth/onboarding-status', {
+    const res = await authApiRequest(session, '/api/auth/onboarding-status', {
       method: 'POST',
       body: JSON.stringify({
         onboarding_status: status,
@@ -53,6 +53,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         ...(fullName ? { full_name: fullName } : {}),
       }),
     });
+    if (!res.success) {
+      showAlert(alertBox, res.message || 'Could not save onboarding progress.', 'error');
+      return false;
+    }
+    return true;
   }
 
   function setStepFromQueryOrProfile() {
@@ -81,16 +86,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function stepNavRow(onBack, nextLabel, onNext, isSubmit = false) {
+    const nextBtn = el('button', {
+      type: isSubmit ? 'submit' : 'button',
+      className: 'btn btn-primary',
+      textContent: nextLabel,
+      onClick: isSubmit
+        ? null
+        : async () => {
+            if (!onNext) return;
+            nextBtn.disabled = true;
+            try {
+              await onNext();
+            } finally {
+              nextBtn.disabled = false;
+            }
+          },
+    });
     return el('div', { style: 'display: flex; justify-content: space-between; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;' }, [
       onBack
         ? el('button', { type: 'button', className: 'btn btn-secondary', textContent: 'Previous', onClick: onBack })
         : el('span'),
-      el('button', {
-        type: isSubmit ? 'submit' : 'button',
-        className: 'btn btn-primary',
-        textContent: nextLabel,
-        onClick: isSubmit ? null : onNext,
-      }),
+      nextBtn,
     ]);
   }
 
@@ -114,27 +130,40 @@ document.addEventListener('DOMContentLoaded', async () => {
           showAlert(alertBox, 'Please enter your full name (at least 2 characters).', 'error');
           return;
         }
-        const res = await authApiRequest(session, '/api/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            full_name: nameIn.value.trim(),
-            professional_title: titleIn.value.trim(),
-            phone: phoneIn.value.trim(),
-            country: countryIn.value.trim(),
-            city: cityIn.value.trim(),
-            portfolio_url: portIn.value.trim(),
-            onboarding_status: 'in_progress',
-            onboarding_step: 2,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+          if (submitBtn.disabled) return;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Saving...';
         }
-        state.bundle = res.data;
-        await supabase.auth.updateUser({ data: { full_name: nameIn.value.trim() } }).catch(() => {});
-        state.step = 2;
-        renderCurrentStep();
+        try {
+          const res = await authApiRequest(session, '/api/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+              full_name: nameIn.value.trim(),
+              professional_title: titleIn.value.trim(),
+              phone: phoneIn.value.trim(),
+              country: countryIn.value.trim(),
+              city: cityIn.value.trim(),
+              portfolio_url: portIn.value.trim(),
+              onboarding_status: 'in_progress',
+              onboarding_step: 2,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          state.bundle = res.data;
+          await supabase.auth.updateUser({ data: { full_name: nameIn.value.trim() } }).catch(() => {});
+          state.step = 2;
+          renderCurrentStep();
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save & Continue';
+          }
+        }
       },
     }, [
       el('div', { className: 'form-row-2' }, [
@@ -172,22 +201,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       onSubmit: async (e) => {
         e.preventDefault();
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            professional_summary: sumIn.value.trim(),
-            career_objective: objIn.value.trim(),
-            onboarding_status: 'in_progress',
-            onboarding_step: 3,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+          if (submitBtn.disabled) return;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Saving...';
         }
-        state.bundle = res.data;
-        state.step = 3;
-        renderCurrentStep();
+        try {
+          const res = await authApiRequest(session, '/api/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+              professional_summary: sumIn.value.trim(),
+              career_objective: objIn.value.trim(),
+              onboarding_status: 'in_progress',
+              onboarding_step: 3,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          state.bundle = res.data;
+          state.step = 3;
+          renderCurrentStep();
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save & Continue';
+          }
+        }
       },
     }, [
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Professional summary' }), sumIn]),
@@ -217,10 +259,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Remove',
-              onClick: async () => {
-                await authApiRequest(session, `/api/profile/education/${ed.id}`, { method: 'DELETE' });
-                await refreshProfile();
-                renderCurrentStep();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/profile/education/${ed.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message || 'Could not remove education entry.', 'error');
+                  if (await refreshProfile()) renderCurrentStep();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ])
@@ -234,27 +282,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     const startIn = el('input', { type: 'date', className: 'form-input' });
     const endIn = el('input', { type: 'date', className: 'form-input' });
 
+    const addBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Education Entry' });
     const addForm = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (addBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/education', {
-          method: 'POST',
-          body: JSON.stringify({
-            institution: instIn.value.trim(),
-            qualification: qualIn.value.trim(),
-            field_of_study: fieldIn.value.trim(),
-            start_date: startIn.value,
-            end_date: endIn.value,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/education', {
+            method: 'POST',
+            body: JSON.stringify({
+              institution: instIn.value.trim(),
+              qualification: qualIn.value.trim(),
+              field_of_study: fieldIn.value.trim(),
+              start_date: startIn.value,
+              end_date: endIn.value,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (await refreshProfile()) renderCurrentStep();
+        } finally {
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add Education Entry';
         }
-        await refreshProfile();
-        renderCurrentStep();
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Add Education Record' }),
@@ -267,7 +323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Start date' }), startIn]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'End date' }), endIn]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Education Entry' })]),
+      el('div', {}, [addBtn]),
     ]);
 
     stepContainer.appendChild(list);
@@ -277,9 +333,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         () => { state.step = 2; renderCurrentStep(); },
         'Continue to Work Experience',
         async () => {
-          await persistOnboardingState('in_progress', 4);
-          state.step = 4;
-          renderCurrentStep();
+          if (await persistOnboardingState('in_progress', 4)) {
+            state.step = 4;
+            renderCurrentStep();
+          }
         }
       )
     );
@@ -305,10 +362,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Remove',
-              onClick: async () => {
-                await authApiRequest(session, `/api/profile/experience/${ex.id}`, { method: 'DELETE' });
-                await refreshProfile();
-                renderCurrentStep();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/profile/experience/${ex.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message || 'Could not remove work experience.', 'error');
+                  if (await refreshProfile()) renderCurrentStep();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ])
@@ -328,28 +391,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currChk.checked) endIn.value = '';
     });
 
+    const addBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Experience Entry' });
     const addForm = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (addBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/experience', {
-          method: 'POST',
-          body: JSON.stringify({
-            employer: empIn.value.trim(),
-            job_title: roleIn.value.trim(),
-            start_date: startIn.value,
-            end_date: endIn.value,
-            is_current: currChk.checked,
-            responsibilities: respIn.value,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/experience', {
+            method: 'POST',
+            body: JSON.stringify({
+              employer: empIn.value.trim(),
+              job_title: roleIn.value.trim(),
+              start_date: startIn.value,
+              end_date: endIn.value,
+              is_current: currChk.checked,
+              responsibilities: respIn.value,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (await refreshProfile()) renderCurrentStep();
+        } finally {
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add Experience Entry';
         }
-        await refreshProfile();
-        renderCurrentStep();
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Add Experience Entry' }),
@@ -366,7 +437,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         'I currently work in this role',
       ]),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Key responsibilities & achievements (one per line)' }), respIn]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Experience Entry' })]),
+      el('div', {}, [addBtn]),
     ]);
 
     stepContainer.appendChild(list);
@@ -376,9 +447,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         () => { state.step = 3; renderCurrentStep(); },
         'Continue to Skills',
         async () => {
-          await persistOnboardingState('in_progress', 5);
-          state.step = 5;
-          renderCurrentStep();
+          if (await persistOnboardingState('in_progress', 5)) {
+            state.step = 5;
+            renderCurrentStep();
+          }
         }
       )
     );
@@ -402,10 +474,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               className: 'chip-remove',
               'aria-label': `Remove ${sk.skill_name}`,
               textContent: '×',
-              onClick: async () => {
-                await authApiRequest(session, `/api/profile/skills/${sk.id}`, { method: 'DELETE' });
-                await refreshProfile();
-                renderCurrentStep();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/profile/skills/${sk.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message || 'Could not remove skill.', 'error');
+                  if (await refreshProfile()) renderCurrentStep();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ])
@@ -422,28 +500,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       el('option', { value: 'language', textContent: 'Language' }),
     ]);
 
+    const addBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Skill' });
     const addForm = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (addBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/skills', {
-          method: 'POST',
-          body: JSON.stringify({ skill_name: nameIn.value.trim(), skill_category: catSel.value }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/skills', {
+            method: 'POST',
+            body: JSON.stringify({ skill_name: nameIn.value.trim(), skill_category: catSel.value }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (await refreshProfile()) renderCurrentStep();
+        } finally {
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add Skill';
         }
-        await refreshProfile();
-        renderCurrentStep();
       },
     }, [
       el('div', { className: 'form-row-2' }, [
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Skill name *' }), nameIn]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Category' }), catSel]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Skill' })]),
+      el('div', {}, [addBtn]),
     ]);
 
     stepContainer.appendChild(chips);
@@ -453,9 +539,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         () => { state.step = 4; renderCurrentStep(); },
         'Continue to Projects & Certifications',
         async () => {
-          await persistOnboardingState('in_progress', 6);
-          state.step = 6;
-          renderCurrentStep();
+          if (await persistOnboardingState('in_progress', 6)) {
+            state.step = 6;
+            renderCurrentStep();
+          }
         }
       )
     );
@@ -477,10 +564,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             type: 'button',
             className: 'btn btn-danger btn-sm',
             textContent: 'Remove',
-            onClick: async () => {
-              await authApiRequest(session, `/api/profile/projects/${pr.id}`, { method: 'DELETE' });
-              await refreshProfile();
-              renderCurrentStep();
+            onClick: async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              try {
+                const res = await authApiRequest(session, `/api/profile/projects/${pr.id}`, { method: 'DELETE' });
+                if (!res.success) return showAlert(alertBox, res.message || 'Could not remove project.', 'error');
+                if (await refreshProfile()) renderCurrentStep();
+              } finally {
+                btn.disabled = false;
+              }
             },
           }),
         ])
@@ -498,10 +591,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             type: 'button',
             className: 'btn btn-danger btn-sm',
             textContent: 'Remove',
-            onClick: async () => {
-              await authApiRequest(session, `/api/profile/certifications/${ct.id}`, { method: 'DELETE' });
-              await refreshProfile();
-              renderCurrentStep();
+            onClick: async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              try {
+                const res = await authApiRequest(session, `/api/profile/certifications/${ct.id}`, { method: 'DELETE' });
+                if (!res.success) return showAlert(alertBox, res.message || 'Could not remove certification.', 'error');
+                if (await refreshProfile()) renderCurrentStep();
+              } finally {
+                btn.disabled = false;
+              }
             },
           }),
         ])
@@ -510,47 +609,63 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const pTitle = el('input', { type: 'text', className: 'form-input', placeholder: 'Project title', required: true });
     const pDesc = el('textarea', { className: 'form-input', placeholder: 'Describe what you built or researched...', required: true });
+    const pBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Project' });
     const pForm = el('form', {
       className: 'form-stack',
       style: 'margin-bottom: 1.5rem;',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (pBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/projects', {
-          method: 'POST',
-          body: JSON.stringify({ project_title: pTitle.value.trim(), description: pDesc.value.trim() }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        pBtn.disabled = true;
+        pBtn.textContent = 'Adding...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/projects', {
+            method: 'POST',
+            body: JSON.stringify({ project_title: pTitle.value.trim(), description: pDesc.value.trim() }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (await refreshProfile()) renderCurrentStep();
+        } finally {
+          pBtn.disabled = false;
+          pBtn.textContent = 'Add Project';
         }
-        await refreshProfile();
-        renderCurrentStep();
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Add Project' }),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Project title *' }), pTitle]),
       el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Description *' }), pDesc]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Project' })]),
+      el('div', {}, [pBtn]),
     ]);
 
     const cName = el('input', { type: 'text', className: 'form-input', placeholder: 'Certification name', required: true });
     const cOrg = el('input', { type: 'text', className: 'form-input', placeholder: 'Issuing organisation', required: true });
+    const cBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Certification' });
     const cForm = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (cBtn.disabled) return;
         clearAlert(alertBox);
-        const res = await authApiRequest(session, '/api/profile/certifications', {
-          method: 'POST',
-          body: JSON.stringify({ certification_name: cName.value.trim(), issuing_organisation: cOrg.value.trim() }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        cBtn.disabled = true;
+        cBtn.textContent = 'Adding...';
+        try {
+          const res = await authApiRequest(session, '/api/profile/certifications', {
+            method: 'POST',
+            body: JSON.stringify({ certification_name: cName.value.trim(), issuing_organisation: cOrg.value.trim() }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (await refreshProfile()) renderCurrentStep();
+        } finally {
+          cBtn.disabled = false;
+          cBtn.textContent = 'Add Certification';
         }
-        await refreshProfile();
-        renderCurrentStep();
       },
     }, [
       el('h3', { className: 'card-title', textContent: 'Add Certification' }),
@@ -558,7 +673,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Certification *' }), cName]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Issuing organisation *' }), cOrg]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Add Certification' })]),
+      el('div', {}, [cBtn]),
     ]);
 
     stepContainer.appendChild(projList);
@@ -570,9 +685,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         () => { state.step = 5; renderCurrentStep(); },
         'Continue to Final Step',
         async () => {
-          await persistOnboardingState('in_progress', 7);
-          state.step = 7;
-          renderCurrentStep();
+          if (await persistOnboardingState('in_progress', 7)) {
+            state.step = 7;
+            renderCurrentStep();
+          }
         }
       )
     );
@@ -603,43 +719,58 @@ document.addEventListener('DOMContentLoaded', async () => {
       onSubmit: async (e) => {
         e.preventDefault();
         clearAlert(alertBox);
-        const langs = langArea.value
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => {
-            const m = /^(.+?)\((.+?)\)$/.exec(line);
-            return m ? { language: m[1].trim(), proficiency: m[2].trim() } : { language: line, proficiency: 'Working proficiency' };
-          });
-
-        const links = linksArea.value
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => {
-            const parts = line.split('|');
-            if (parts.length >= 2) {
-              return { label: parts[0].trim(), url: parts.slice(1).join('|').trim() };
-            }
-            return { label: 'Link', url: line };
-          });
-
-        const res = await authApiRequest(session, '/api/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            languages: langs,
-            professional_links: links,
-            onboarding_status: 'completed',
-            onboarding_step: 7,
-          }),
-        });
-        if (!res.success) {
-          showAlert(alertBox, res.message, 'error');
-          return;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+          if (submitBtn.disabled) return;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Finishing...';
         }
-        await persistOnboardingState('completed', 7);
-        showAlert(alertBox, 'Onboarding complete! Redirecting to your workspace dashboard...', 'success');
-        setTimeout(() => window.location.replace('/dashboard.html'), 600);
+        try {
+          const langs = langArea.value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              const m = /^(.+?)\((.+?)\)$/.exec(line);
+              return m ? { language: m[1].trim(), proficiency: m[2].trim() } : { language: line, proficiency: 'Working proficiency' };
+            });
+
+          const links = linksArea.value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              const parts = line.split('|');
+              if (parts.length >= 2) {
+                return { label: parts[0].trim(), url: parts.slice(1).join('|').trim() };
+              }
+              return { label: 'Link', url: line };
+            });
+
+          const res = await authApiRequest(session, '/api/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+              languages: langs,
+              professional_links: links,
+              onboarding_status: 'completed',
+              onboarding_step: 7,
+            }),
+          });
+          if (!res.success) {
+            showAlert(alertBox, res.message, 'error');
+            return;
+          }
+          if (!(await persistOnboardingState('completed', 7))) {
+            return;
+          }
+          showAlert(alertBox, 'Onboarding complete! Redirecting to your workspace dashboard...', 'success');
+          setTimeout(() => window.location.replace('/dashboard.html'), 600);
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Onboarding & Open Dashboard';
+          }
+        }
       },
     }, [
       el('p', { className: 'card-text', textContent: `Current profile completeness: ${comp.percentage}%. You can always refine all sections later in Career Profile.` }),
@@ -666,8 +797,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (skipBtn) {
     skipBtn.addEventListener('click', async () => {
+      if (skipBtn.disabled) return;
       skipBtn.disabled = true;
-      await persistOnboardingState('skipped', state.step);
+      const ok = await persistOnboardingState('skipped', state.step);
+      if (!ok) {
+        skipBtn.disabled = false;
+        return;
+      }
       window.location.replace('/dashboard.html');
     });
   }

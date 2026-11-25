@@ -87,11 +87,17 @@ document.addEventListener('DOMContentLoaded', async () => {
               type: 'button',
               className: 'btn btn-danger btn-sm',
               textContent: 'Delete',
-              onClick: async () => {
-                const res = await authApiRequest(session, `/api/jobs/${job.id}`, { method: 'DELETE' });
-                if (!res.success) return showAlert(alertBox, res.message, 'error');
-                if (selectedJob && selectedJob.id === job.id) selectedJob = null;
-                await loadJobs();
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const res = await authApiRequest(session, `/api/jobs/${job.id}`, { method: 'DELETE' });
+                  if (!res.success) return showAlert(alertBox, res.message, 'error');
+                  if (selectedJob && selectedJob.id === job.id) selectedJob = null;
+                  await loadJobs();
+                } finally {
+                  btn.disabled = false;
+                }
               },
             }),
           ]),
@@ -136,20 +142,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             textContent: ana ? 'Re-analyse JD' : 'Analyse with AI',
             onClick: async (e) => {
               const btn = e.currentTarget;
+              if (btn.disabled) return;
               btn.disabled = true;
               btn.textContent = 'Analysing...';
-              const res = await authApiRequest(session, '/api/jobs/analyze', {
-                method: 'POST',
-                body: JSON.stringify({ job_id: selectedJob.id }),
-              });
-              if (!res.success) {
-                showAlert(alertBox, res.message, 'error');
+              clearAlert(alertBox);
+              try {
+                const res = await authApiRequest(session, '/api/jobs/analyze', {
+                  method: 'POST',
+                  body: JSON.stringify({ job_id: selectedJob.id }),
+                  onSlowRequest: () => {
+                    showAlert(alertBox, 'Analysing job description with AI (waking backend / extracting requirements)...', 'info');
+                  },
+                });
+                if (!res.success) {
+                  showAlert(alertBox, res.message, 'error');
+                  return;
+                }
+                showAlert(alertBox, 'Job description analysis updated.', 'success');
+                await loadJobs(selectedJob.id);
+              } finally {
                 btn.disabled = false;
                 btn.textContent = ana ? 'Re-analyse JD' : 'Analyse with AI';
-                return;
               }
-              showAlert(alertBox, 'Job description analysis updated.', 'success');
-              await loadJobs(selectedJob.id);
             },
           }),
           el('button', {
@@ -158,20 +172,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             textContent: 'Run Profile Compatibility',
             onClick: async (e) => {
               const btn = e.currentTarget;
+              if (btn.disabled) return;
               btn.disabled = true;
               btn.textContent = 'Comparing...';
               clearAlert(alertBox);
-              const res = await authApiRequest(session, `/api/jobs/${selectedJob.id}/compatibility`, {
-                method: 'POST',
-              });
-              if (!res.success) {
-                showAlert(alertBox, res.message, 'error');
+              try {
+                const res = await authApiRequest(session, `/api/jobs/${selectedJob.id}/compatibility`, {
+                  method: 'POST',
+                  onSlowRequest: () => {
+                    showAlert(alertBox, 'Comparing your confirmed profile with job requirements...', 'info');
+                  },
+                });
+                if (!res.success) {
+                  showAlert(alertBox, res.message, 'error');
+                  return;
+                }
+                showAlert(alertBox, 'Compatibility analysis completed.', 'success');
+                await loadJobs(selectedJob.id);
+              } finally {
                 btn.disabled = false;
                 btn.textContent = 'Run Profile Compatibility';
-                return;
               }
-              showAlert(alertBox, 'Compatibility analysis completed.', 'success');
-              await loadJobs(selectedJob.id);
             },
           }),
           el('a', {
@@ -233,34 +254,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     const editSkills = el('input', { type: 'text', className: 'form-input', value: (sa.required_skills || []).join(', ') });
     const editTools = el('input', { type: 'text', className: 'form-input', value: (sa.tools || []).join(', ') });
 
+    const saveCorrectionsBtn = el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Save Corrections' });
     const editForm = el('form', {
       className: 'form-stack',
       onSubmit: async (e) => {
         e.preventDefault();
+        if (saveCorrectionsBtn.disabled) return;
         clearAlert(alertBox);
-        const splitLines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
-        const splitComma = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
-        const updatedStructured = {
-          ...sa,
-          job_title: editTitle.value.trim(),
-          company_name: editCompany.value.trim(),
-          responsibilities: splitLines(editResp.value),
-          mandatory_requirements: splitLines(editMand.value),
-          preferred_requirements: splitLines(editPref.value),
-          required_skills: splitComma(editSkills.value),
-          tools: splitComma(editTools.value),
-        };
-        const res = await authApiRequest(session, `/api/jobs/${selectedJob.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
+        saveCorrectionsBtn.disabled = true;
+        saveCorrectionsBtn.textContent = 'Saving...';
+        try {
+          const splitLines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
+          const splitComma = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
+          const updatedStructured = {
+            ...sa,
             job_title: editTitle.value.trim(),
             company_name: editCompany.value.trim(),
-            structured_analysis: updatedStructured,
-          }),
-        });
-        if (!res.success) return showAlert(alertBox, res.message, 'error');
-        showAlert(alertBox, 'Job opportunity & extracted requirements updated.', 'success');
-        await loadJobs(selectedJob.id);
+            responsibilities: splitLines(editResp.value),
+            mandatory_requirements: splitLines(editMand.value),
+            preferred_requirements: splitLines(editPref.value),
+            required_skills: splitComma(editSkills.value),
+            tools: splitComma(editTools.value),
+          };
+          const res = await authApiRequest(session, `/api/jobs/${selectedJob.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              job_title: editTitle.value.trim(),
+              company_name: editCompany.value.trim(),
+              structured_analysis: updatedStructured,
+            }),
+          });
+          if (!res.success) return showAlert(alertBox, res.message, 'error');
+          showAlert(alertBox, 'Job opportunity & extracted requirements updated.', 'success');
+          await loadJobs(selectedJob.id);
+        } finally {
+          saveCorrectionsBtn.disabled = false;
+          saveCorrectionsBtn.textContent = 'Save Corrections';
+        }
       },
     }, [
       el('h4', { className: 'card-title', textContent: 'Review & Edit Extracted Requirements' }),
@@ -277,55 +307,81 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Required Skills (comma-separated)' }), editSkills]),
         el('div', { className: 'form-group' }, [el('label', { className: 'form-label', textContent: 'Tools & Technologies (comma-separated)' }), editTools]),
       ]),
-      el('div', {}, [el('button', { type: 'submit', className: 'btn btn-secondary', textContent: 'Save Corrections' })]),
+      el('div', {}, [saveCorrectionsBtn]),
     ]);
 
     detailPanel.appendChild(editForm);
   }
 
+  let jobSubmitting = false;
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (jobSubmitting) return;
     clearAlert(alertBox);
+    jobSubmitting = true;
     analyzeBtn.disabled = true;
+    saveOnlyBtn.disabled = true;
     analyzeBtn.textContent = 'Analysing with AI...';
 
-    const screening = screenIn.value.split('\n').map((s) => s.trim()).filter(Boolean);
-    const res = await authApiRequest(session, '/api/jobs/analyze', {
-      method: 'POST',
-      body: JSON.stringify({
-        job_title: titleIn.value.trim(),
-        company_name: companyIn.value.trim(),
-        original_job_description: jdIn.value.trim(),
-        additional_instructions: notesIn.value.trim(),
-        screening_questions: screening,
-      }),
-    });
-    analyzeBtn.disabled = false;
-    analyzeBtn.textContent = 'Save & Analyse Job Description';
+    try {
+      const screening = screenIn.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      const res = await authApiRequest(session, '/api/jobs/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          job_title: titleIn.value.trim(),
+          company_name: companyIn.value.trim(),
+          original_job_description: jdIn.value.trim(),
+          additional_instructions: notesIn.value.trim(),
+          screening_questions: screening,
+        }),
+        onSlowRequest: () => {
+          showAlert(alertBox, 'Saving and analysing job description with AI (waking backend / extracting requirements)...', 'info');
+        },
+      });
 
-    if (!res.success) return showAlert(alertBox, res.message, 'error');
-    form.reset();
-    showAlert(alertBox, 'Job description saved and analysed.', 'success');
-    await loadJobs(res.data && res.data.job && res.data.job.id);
+      if (!res.success) return showAlert(alertBox, res.message, 'error');
+      form.reset();
+      showAlert(alertBox, 'Job description saved and analysed.', 'success');
+      await loadJobs(res.data && res.data.job && res.data.job.id);
+    } finally {
+      jobSubmitting = false;
+      analyzeBtn.disabled = false;
+      saveOnlyBtn.disabled = false;
+      analyzeBtn.textContent = 'Save & Analyse Job Description';
+    }
   });
 
   saveOnlyBtn.addEventListener('click', async () => {
+    if (jobSubmitting) return;
     clearAlert(alertBox);
-    const screening = screenIn.value.split('\n').map((s) => s.trim()).filter(Boolean);
-    const res = await authApiRequest(session, '/api/jobs', {
-      method: 'POST',
-      body: JSON.stringify({
-        job_title: titleIn.value.trim(),
-        company_name: companyIn.value.trim(),
-        original_job_description: jdIn.value.trim(),
-        additional_instructions: notesIn.value.trim(),
-        screening_questions: screening,
-      }),
-    });
-    if (!res.success) return showAlert(alertBox, res.message, 'error');
-    form.reset();
-    showAlert(alertBox, 'Job opportunity saved.', 'success');
-    await loadJobs(res.data && res.data.item && res.data.item.id);
+    jobSubmitting = true;
+    analyzeBtn.disabled = true;
+    saveOnlyBtn.disabled = true;
+    saveOnlyBtn.textContent = 'Saving...';
+
+    try {
+      const screening = screenIn.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      const res = await authApiRequest(session, '/api/jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          job_title: titleIn.value.trim(),
+          company_name: companyIn.value.trim(),
+          original_job_description: jdIn.value.trim(),
+          additional_instructions: notesIn.value.trim(),
+          screening_questions: screening,
+        }),
+      });
+      if (!res.success) return showAlert(alertBox, res.message, 'error');
+      form.reset();
+      showAlert(alertBox, 'Job opportunity saved.', 'success');
+      await loadJobs(res.data && res.data.item && res.data.item.id);
+    } finally {
+      jobSubmitting = false;
+      analyzeBtn.disabled = false;
+      saveOnlyBtn.disabled = false;
+      saveOnlyBtn.textContent = 'Save Only';
+    }
   });
 
   await loadJobs(new URLSearchParams(window.location.search).get('job'));
