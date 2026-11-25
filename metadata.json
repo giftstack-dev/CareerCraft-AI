@@ -1,0 +1,6 @@
+{
+  "name": "CareerCraft AI",
+  "description": "One profile. Every opportunity. A smarter application. Prepare tailored CVs, cover letters, and application materials from your confirmed career profile.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

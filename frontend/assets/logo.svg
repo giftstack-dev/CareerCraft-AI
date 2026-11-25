@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" fill="none" role="img" aria-label="CareerCraft AI logo">
+  <rect width="40" height="40" rx="10" fill="#0F172A"/>
+  <!-- Document silhouette -->
+  <path d="M12 10.5C12 9.67157 12.6716 9 13.5 9H22.25L28 14.75V29.5C28 30.3284 27.3284 31 26.5 31H13.5C12.6716 31 12 30.3284 12 29.5V10.5Z" stroke="#F8FAFC" stroke-width="1.75" stroke-linejoin="round"/>
+  <path d="M22 9V15H28" stroke="#94A3B8" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- Verified checkmark / upward growth trajectory -->
+  <path d="M15.5 23.5L18.5 26L24.5 19" stroke="#2563EB" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Minimal AI geometric spark -->
+  <path d="M24.5 18.5V22M24.5 18.5H21" stroke="#60A5FA" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
