@@ -61,6 +61,10 @@ class TestPhase2AuthEndpoints(unittest.TestCase):
         body = resp.get_json()
         self.assertEqual(body["data"]["supabaseUrl"], "https://demo.supabase.co")
         self.assertEqual(body["data"]["supabasePublishableKey"], "sb_publishable_demo")
+        self.assertEqual(
+            body["data"]["providers"],
+            {"emailPassword": True, "googleOAuth": True},
+        )
 
     def test_unverified_email_rejected_with_403(self) -> None:
         fake_claims = {
@@ -105,6 +109,37 @@ class TestPhase2AuthEndpoints(unittest.TestCase):
             body = resp.get_json()
             self.assertTrue(body["success"])
             self.assertEqual(body["data"]["profile"]["onboarding_status"], "not_started")
+
+    def test_google_oauth_name_fallback_initializes_profile(self) -> None:
+        fake_claims = {
+            "sub": "22222222-2222-4222-8222-222222222222",
+            "email": "oauth-user@gmail.com",
+            "role": "authenticated",
+            "email_confirmed_at": "2026-11-25T09:05:00Z",
+            "user_metadata": {"name": "Grace Hopper", "email_verified": True},
+        }
+        mock_profile = {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "full_name": "Grace Hopper",
+            "email": "oauth-user@gmail.com",
+            "onboarding_status": "not_started",
+            "onboarding_step": 1,
+        }
+        with (
+            patch("utils.auth.decode_supabase_jwt", return_value=fake_claims),
+            patch("routes.auth._ensure_user_profile", return_value=mock_profile) as ensure_mock,
+        ):
+            resp = self.client.get(
+                "/api/auth/me",
+                headers={"Authorization": "Bearer google.jwt.token"},
+            )
+            self.assertEqual(resp.status_code, 200)
+            ensure_mock.assert_called_once_with(
+                "22222222-2222-4222-8222-222222222222",
+                "oauth-user@gmail.com",
+                "Grace Hopper",
+            )
+            self.assertEqual(resp.get_json()["data"]["user"]["full_name"], "Grace Hopper")
 
 
 if __name__ == "__main__":

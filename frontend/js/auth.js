@@ -1,7 +1,8 @@
 /**
  * CareerCraft AI — Real Supabase Authentication Workflows
- * Handles registration, email verification, resend verification, login,
- * forgot password, and password reset.
+ * Handles Google OAuth, email/password registration, email verification,
+ * resend verification, login, forgot password, and password reset with
+ * rate-limit cooldown handling.
  */
 
 import {
@@ -12,6 +13,10 @@ import {
 import { clearAlert, isValidEmail, setFieldError, showAlert } from './utils.js';
 
 const PENDING_EMAIL_KEY = 'cc_pending_verification_email';
+const RESEND_COOLDOWN_UNTIL_KEY = 'cc_resend_cooldown_until';
+const RESET_COOLDOWN_UNTIL_KEY = 'cc_reset_cooldown_until';
+const OAUTH_NEXT_KEY = 'cc_oauth_next_path';
+const DEFAULT_EMAIL_COOLDOWN_SEC = 60;
 
 function getMissingConfigMessage() {
   return 'Supabase runtime configuration was not found. Ensure SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are set in your environment and restart the server.';
@@ -26,6 +31,115 @@ function isSafeInternalPath(path) {
   } catch {
     return false;
   }
+}
+
+function isRateLimitError(err) {
+  if (!err) return false;
+  const status = Number(err.status || 0);
+  const code = String(err.code || '').toLowerCase();
+  const msg = String(err.message || '').toLowerCase();
+  return (
+    status === 429 ||
+    code === 'over_email_send_rate_limit' ||
+    code === 'over_request_rate_limit' ||
+    msg.includes('rate limit') ||
+    msg.includes('too many') ||
+    msg.includes('only request this after')
+  );
+}
+
+function parseCooldownSeconds(err, fallback = DEFAULT_EMAIL_COOLDOWN_SEC) {
+  const msg = String((err && err.message) || '');
+  const match = msg.match(/after\s+(\d+)\s+second/i);
+  if (match) {
+    const parsed = Number(match[1]);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(Math.max(parsed, 15), 300);
+    }
+  }
+  return fallback;
+}
+
+function formatAuthErrorMessage(err, context = 'auth') {
+  const msg = String((err && err.message) || '');
+  const lower = msg.toLowerCase();
+
+  if (isRateLimitError(err)) {
+    const waitSec = parseCooldownSeconds(err, DEFAULT_EMAIL_COOLDOWN_SEC);
+    if (context === 'recovery') {
+      return `Too many password recovery emails were requested. Please wait ${waitSec} seconds before requesting another link.`;
+    }
+    return `Too many verification emails were requested. Please wait ${waitSec} seconds before requesting another email.`;
+  }
+
+  if (
+    lower.includes('error sending confirmation email') ||
+    lower.includes('error sending recovery email') ||
+    lower.includes('smtp') ||
+    lower.includes('mail')
+  ) {
+    return 'Unable to send the email right now. Please confirm Brevo custom SMTP settings are active in Supabase Authentication and try again shortly.';
+  }
+
+  if (lower.includes('provider is not enabled') || lower.includes('unsupported provider')) {
+    return 'Google sign-in is not enabled yet in Supabase Authentication Providers. Please sign in with email and password or enable Google OAuth in Supabase.';
+  }
+
+  if (lower.includes('already registered') || lower.includes('already exists')) {
+    return 'An account with this email address already exists. Please sign in or reset your password.';
+  }
+
+  return msg || 'Authentication request failed. Please try again.';
+}
+
+function attachPersistedCooldown({ storageKey, button, idleLabel, activePrefix }) {
+  if (!button) {
+    return { start() {}, stop() {}, isActive: () => false };
+  }
+
+  let timerId = null;
+
+  const stop = () => {
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
+    sessionStorage.removeItem(storageKey);
+    button.disabled = false;
+    button.textContent = idleLabel;
+  };
+
+  const runTick = (untilMs) => {
+    if (timerId) clearInterval(timerId);
+    const update = () => {
+      const remaining = Math.ceil((untilMs - Date.now()) / 1000);
+      if (remaining <= 0) {
+        stop();
+        return;
+      }
+      button.disabled = true;
+      button.textContent = `${activePrefix} ${remaining}s`;
+    };
+    update();
+    timerId = setInterval(update, 1000);
+  };
+
+  const savedRaw = Number(sessionStorage.getItem(storageKey) || 0);
+  if (savedRaw > Date.now()) {
+    runTick(savedRaw);
+  }
+
+  return {
+    start(seconds = DEFAULT_EMAIL_COOLDOWN_SEC, persist = true) {
+      const untilMs = Date.now() + Math.max(1, seconds) * 1000;
+      if (persist) {
+        sessionStorage.setItem(storageKey, String(untilMs));
+      }
+      runTick(untilMs);
+    },
+    stop,
+    isActive: () => Number(sessionStorage.getItem(storageKey) || 0) > Date.now(),
+  };
 }
 
 function redirectAfterVerifiedAuth(profile, alertBox) {
@@ -54,6 +168,219 @@ function redirectAfterVerifiedAuth(profile, alertBox) {
 }
 
 /* --------------------------------------------------------------------------
+   Google OAuth Helper (Shared by login.html & register.html)
+   -------------------------------------------------------------------------- */
+function initGoogleOAuthButton(alertBox, params) {
+  const googleBtn = document.getElementById('google-oauth-btn');
+  if (!googleBtn) return;
+
+  const originalHtml = googleBtn.innerHTML;
+  let redirecting = false;
+
+  googleBtn.addEventListener('click', async () => {
+    if (redirecting) return;
+    clearAlert(alertBox);
+
+    redirecting = true;
+    googleBtn.disabled = true;
+    googleBtn.textContent = 'Connecting to Google...';
+
+    try {
+      const supabase = await getSupabaseClient();
+      if (!supabase) {
+        showAlert(alertBox, getMissingConfigMessage(), 'error');
+        return;
+      }
+
+      const nextUrl = params ? params.get('next') : '';
+      if (isSafeInternalPath(nextUrl)) {
+        sessionStorage.setItem(OAUTH_NEXT_KEY, nextUrl);
+      } else {
+        sessionStorage.removeItem(OAUTH_NEXT_KEY);
+      }
+
+      const redirectTo = `${window.location.origin}/auth-callback.html`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      });
+
+      if (error) {
+        showAlert(alertBox, formatAuthErrorMessage(error, 'oauth'), 'error');
+      }
+    } catch {
+      showAlert(
+        alertBox,
+        'Unable to start Google sign-in right now. Check your connection and try again.',
+        'error'
+      );
+    } finally {
+      redirecting = false;
+      googleBtn.disabled = false;
+      googleBtn.innerHTML = originalHtml;
+    }
+  });
+}
+
+/* --------------------------------------------------------------------------
+   0. Google OAuth Callback (auth-callback.html)
+   -------------------------------------------------------------------------- */
+async function initAuthCallbackPage() {
+  const section = document.getElementById('auth-callback-section');
+  if (!section) return;
+
+  const spinner = document.getElementById('oauth-spinner');
+  const heading = document.getElementById('oauth-status-heading');
+  const copy = document.getElementById('oauth-status-copy');
+  const alertBox = document.getElementById('oauth-alert');
+  const fallbackActions = document.getElementById('oauth-fallback-actions');
+
+  const showCallbackError = (title, message) => {
+    if (spinner) spinner.hidden = true;
+    if (heading) heading.textContent = title;
+    if (copy) copy.textContent = 'You can return to the login or registration page to try again.';
+    showAlert(alertBox, message, 'error');
+    if (fallbackActions) fallbackActions.hidden = false;
+  };
+
+  const queryParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const oauthError = queryParams.get('error') || hashParams.get('error');
+  const oauthErrorDesc =
+    queryParams.get('error_description') || hashParams.get('error_description');
+  const code = queryParams.get('code');
+
+  if (oauthError || oauthErrorDesc) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (String(oauthError || '').toLowerCase() === 'access_denied') {
+      showCallbackError(
+        'Google sign-in cancelled',
+        'Google sign-in was cancelled before completion. Try again or continue with email and password.'
+      );
+      return;
+    }
+    showCallbackError(
+      'Google sign-in failed',
+      oauthErrorDesc || 'Authentication with Google could not be completed. Please try again.'
+    );
+    return;
+  }
+
+  const supabase = await getSupabaseClient();
+  if (!supabase) {
+    showCallbackError('Configuration unavailable', getMissingConfigMessage());
+    return;
+  }
+
+  try {
+    let { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+    let session = sessionData && sessionData.session;
+
+    if (!session && code) {
+      const { data: exchangeData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
+      if (exchangeErr) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showCallbackError(
+          'Sign-in link expired',
+          exchangeErr.message || 'The Google authentication session could not be verified. Please sign in again.'
+        );
+        return;
+      }
+      session = exchangeData && exchangeData.session;
+    }
+
+    // Wait briefly for Supabase client URL/hash session detection if not yet resolved
+    if (!session) {
+      session = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (sess) => {
+          if (settled) return;
+          settled = true;
+          resolve(sess || null);
+        };
+        const timer = setTimeout(() => finish(null), 2500);
+        const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+          if (nextSession && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
+            clearTimeout(timer);
+            if (listener && listener.subscription) listener.subscription.unsubscribe();
+            finish(nextSession);
+          }
+        });
+      });
+    }
+
+    // Remove OAuth code/fragment from browser history
+    if (window.location.search || window.location.hash) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    if (sessionErr || !session) {
+      showCallbackError(
+        'No active sign-in session',
+        'We could not establish an authenticated Google session. Please try signing in again.'
+      );
+      return;
+    }
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    const user = (userData && userData.user) || session.user;
+    if (userErr || !user) {
+      await supabase.auth.signOut().catch(() => {});
+      showCallbackError(
+        'Account verification failed',
+        'Unable to confirm your identity with Supabase Auth. Please sign in again.'
+      );
+      return;
+    }
+
+    if (!isUserEmailVerified(user)) {
+      sessionStorage.setItem(PENDING_EMAIL_KEY, user.email || '');
+      window.location.replace('/verify-email.html');
+      return;
+    }
+
+    if (heading) heading.textContent = 'Preparing your workspace';
+    if (copy) copy.textContent = 'Initializing your career profile and checking onboarding status...';
+
+    const profile = await syncUserProfile(session, user);
+    if (profile && profile.errorStatus === 403) {
+      sessionStorage.setItem(PENDING_EMAIL_KEY, user.email || '');
+      window.location.replace('/verify-email.html');
+      return;
+    }
+    if (profile && profile.errorStatus) {
+      showCallbackError(
+        profile.errorCode === 'schema_not_initialized'
+          ? 'Database setup required'
+          : 'Profile synchronization issue',
+        profile.message || 'Signed in with Google, but we could not load your profile. Please retry.'
+      );
+      return;
+    }
+
+    const storedNext = sessionStorage.getItem(OAUTH_NEXT_KEY);
+    sessionStorage.removeItem(OAUTH_NEXT_KEY);
+    if (isSafeInternalPath(storedNext)) {
+      window.location.replace(storedNext);
+      return;
+    }
+
+    redirectAfterVerifiedAuth(profile, alertBox);
+  } catch {
+    showCallbackError(
+      'Sign-in error',
+      'Unable to complete Google sign-in right now. Check your connection and try again.'
+    );
+  }
+}
+
+/* --------------------------------------------------------------------------
    1. Registration (register.html)
    -------------------------------------------------------------------------- */
 function initRegisterPage() {
@@ -62,7 +389,10 @@ function initRegisterPage() {
 
   const alertBox = document.getElementById('auth-alert');
   const submitBtn = document.getElementById('register-submit');
+  const params = new URLSearchParams(window.location.search);
   let submitting = false;
+
+  initGoogleOAuthButton(alertBox, params);
 
   // Pre-warm public Supabase config in background while user completes form
   getSupabaseClient().catch(() => {});
@@ -141,22 +471,11 @@ function initRegisterPage() {
       });
 
       if (error) {
-        const msg = (error.message || '').toLowerCase();
-        if (msg.includes('already registered') || msg.includes('already exists')) {
-          showAlert(
-            alertBox,
-            'An account with this email address already exists. Please sign in or reset your password.',
-            'error'
-          );
-        } else if (error.status === 429 || msg.includes('rate limit')) {
-          showAlert(
-            alertBox,
-            'Too many verification emails were requested recently. Please wait a few minutes before trying again.',
-            'error'
-          );
-        } else {
-          showAlert(alertBox, error.message || 'Unable to create account right now.', 'error');
+        if (isRateLimitError(error)) {
+          const waitSec = parseCooldownSeconds(error, DEFAULT_EMAIL_COOLDOWN_SEC);
+          sessionStorage.setItem(RESEND_COOLDOWN_UNTIL_KEY, String(Date.now() + waitSec * 1000));
         }
+        showAlert(alertBox, formatAuthErrorMessage(error, 'registration'), 'error');
         return;
       }
 
@@ -164,7 +483,7 @@ function initRegisterPage() {
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
         showAlert(
           alertBox,
-          'An account with this email address may already exist. Try signing in or requesting a password reset.',
+          'An account with this email address already exists. Try signing in, using Continue with Google, or requesting a password reset.',
           'info'
         );
         return;
@@ -179,6 +498,10 @@ function initRegisterPage() {
         return;
       }
 
+      sessionStorage.setItem(
+        RESEND_COOLDOWN_UNTIL_KEY,
+        String(Date.now() + DEFAULT_EMAIL_COOLDOWN_SEC * 1000)
+      );
       window.location.replace('/verify-email.html?sent=1');
     } catch {
       showAlert(
@@ -214,6 +537,13 @@ async function initVerifyEmailPage() {
     resendEmailInput.value = pendingEmail;
   }
 
+  const cooldown = attachPersistedCooldown({
+    storageKey: RESEND_COOLDOWN_UNTIL_KEY,
+    button: resendBtn,
+    idleLabel: 'Resend Verification Email',
+    activePrefix: 'Resend available in',
+  });
+
   const supabase = await getSupabaseClient();
   if (!supabase) {
     showAlert(alertBox, getMissingConfigMessage(), 'error');
@@ -243,6 +573,9 @@ async function initVerifyEmailPage() {
         : 'A verification email has been sent to your inbox. Click the link in the email to activate your account.',
       'info'
     );
+    if (!cooldown.isActive()) {
+      cooldown.start(DEFAULT_EMAIL_COOLDOWN_SEC);
+    }
   }
 
   // Complete token_hash or PKCE code verification if present in URL
@@ -287,6 +620,7 @@ async function initVerifyEmailPage() {
       const user = userData && userData.user;
       if (user && isUserEmailVerified(user)) {
         sessionStorage.removeItem(PENDING_EMAIL_KEY);
+        sessionStorage.removeItem(RESEND_COOLDOWN_UNTIL_KEY);
         statusHeading.textContent = 'Email verified';
         statusCopy.textContent = 'Initializing your career profile and checking onboarding status...';
         const profile = await syncUserProfile(session, user);
@@ -310,28 +644,10 @@ async function initVerifyEmailPage() {
     showAlert(alertBox, 'Unable to verify your email link. Please try requesting a new verification email.', 'error');
   }
 
-  // Resend verification email with 60-second cooldown
   if (resendForm) {
-    let cooldownTimer = null;
-
-    const startCooldown = (seconds = 60) => {
-      let remaining = seconds;
-      resendBtn.disabled = true;
-      resendBtn.textContent = `Resend available in ${remaining}s`;
-      cooldownTimer = setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          clearInterval(cooldownTimer);
-          resendBtn.disabled = false;
-          resendBtn.textContent = 'Resend Verification Email';
-        } else {
-          resendBtn.textContent = `Resend available in ${remaining}s`;
-        }
-      }, 1000);
-    };
-
     resendForm.addEventListener('submit', async (event) => {
       event.preventDefault();
+      if (cooldown.isActive()) return;
       clearAlert(alertBox);
       setFieldError(resendEmailInput, resendErr, '');
 
@@ -354,9 +670,13 @@ async function initVerifyEmailPage() {
         });
 
         if (error) {
-          showAlert(alertBox, error.message || 'Unable to resend verification email right now.', 'error');
-          resendBtn.disabled = false;
-          resendBtn.textContent = 'Resend Verification Email';
+          showAlert(alertBox, formatAuthErrorMessage(error, 'resend'), 'error');
+          if (isRateLimitError(error)) {
+            cooldown.start(parseCooldownSeconds(error, DEFAULT_EMAIL_COOLDOWN_SEC));
+          } else {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'Resend Verification Email';
+          }
           return;
         }
 
@@ -366,7 +686,7 @@ async function initVerifyEmailPage() {
           `Verification link sent to ${email}. Please check your inbox and spam folder.`,
           'success'
         );
-        startCooldown(60);
+        cooldown.start(DEFAULT_EMAIL_COOLDOWN_SEC);
       } catch {
         showAlert(alertBox, 'Network error while resending verification email.', 'error');
         resendBtn.disabled = false;
@@ -386,6 +706,8 @@ async function initLoginPage() {
   const alertBox = document.getElementById('auth-alert');
   const submitBtn = document.getElementById('login-submit');
   const params = new URLSearchParams(window.location.search);
+
+  initGoogleOAuthButton(alertBox, params);
 
   if (params.get('logged_out') === '1') {
     showAlert(alertBox, 'You have been signed out securely.', 'info');
@@ -473,6 +795,14 @@ async function initLoginPage() {
           }, 1200);
           return;
         }
+        if (isRateLimitError(error)) {
+          showAlert(
+            alertBox,
+            'Too many sign-in attempts in a short time. Please wait a minute and try again.',
+            'error'
+          );
+          return;
+        }
         showAlert(alertBox, 'Invalid email address or password.', 'error');
         return;
       }
@@ -530,11 +860,18 @@ function initForgotPasswordPage() {
   const submitBtn = form.querySelector('button[type="submit"]');
   let submitting = false;
 
+  const cooldown = attachPersistedCooldown({
+    storageKey: RESET_COOLDOWN_UNTIL_KEY,
+    button: submitBtn,
+    idleLabel: 'Send Recovery Link',
+    activePrefix: 'Wait',
+  });
+
   getSupabaseClient().catch(() => {});
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || cooldown.isActive()) return;
     clearAlert(alertBox);
 
     const emailInput = document.getElementById('email');
@@ -553,6 +890,7 @@ function initForgotPasswordPage() {
       submitBtn.textContent = 'Sending Link...';
     }
 
+    let cooldownStarted = false;
     try {
       const supabase = await getSupabaseClient();
       if (!supabase) {
@@ -565,21 +903,27 @@ function initForgotPasswordPage() {
       });
 
       if (error) {
-        showAlert(alertBox, error.message || 'Unable to send recovery email right now.', 'error');
+        showAlert(alertBox, formatAuthErrorMessage(error, 'recovery'), 'error');
+        if (isRateLimitError(error)) {
+          cooldown.start(parseCooldownSeconds(error, DEFAULT_EMAIL_COOLDOWN_SEC));
+          cooldownStarted = true;
+        }
         return;
       }
 
       showAlert(
         alertBox,
-        'If an account exists for that email address, a password recovery link has been sent. Please check your inbox.',
+        'If an account exists for that email address, a password recovery link has been sent. Please check your inbox and spam folder.',
         'success'
       );
       form.reset();
+      cooldown.start(DEFAULT_EMAIL_COOLDOWN_SEC);
+      cooldownStarted = true;
     } catch {
       showAlert(alertBox, 'Network error while requesting password recovery.', 'error');
     } finally {
       submitting = false;
-      if (submitBtn) {
+      if (submitBtn && !cooldownStarted && !cooldown.isActive()) {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Send Recovery Link';
       }
@@ -694,6 +1038,7 @@ async function initResetPasswordPage() {
         return;
       }
 
+      sessionStorage.removeItem(RESET_COOLDOWN_UNTIL_KEY);
       await supabase.auth.signOut();
       window.location.replace('/login.html?reset=success');
     } catch {
@@ -707,6 +1052,7 @@ async function initResetPasswordPage() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initAuthCallbackPage();
   initRegisterPage();
   initVerifyEmailPage();
   initLoginPage();

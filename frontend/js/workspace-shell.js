@@ -176,7 +176,7 @@ export function initWorkspaceShell({ user, profile } = {}) {
   if (headerName && user) {
     const fullName =
       (profile && profile.full_name) ||
-      (user.user_metadata && user.user_metadata.full_name) ||
+      (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) ||
       '';
     headerName.textContent = fullName || user.email || 'Account';
   }

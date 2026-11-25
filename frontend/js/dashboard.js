@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const alertBox = document.getElementById('dashboard-alert');
   const fullName =
     (profile && profile.full_name) ||
-    (user.user_metadata && user.user_metadata.full_name) ||
+    (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) ||
     '';
   const firstName = fullName ? fullName.split(/\s+/)[0] : 'there';
 

@@ -18,7 +18,11 @@ BEGIN
     INSERT INTO public.profiles (id, full_name, email, email_verified_at)
     VALUES (
         NEW.id,
-        COALESCE(NEW.raw_user_meta_data ->> 'full_name', ''),
+        COALESCE(
+            NULLIF(NEW.raw_user_meta_data ->> 'full_name', ''),
+            NULLIF(NEW.raw_user_meta_data ->> 'name', ''),
+            ''
+        ),
         COALESCE(NEW.email, ''),
         NEW.email_confirmed_at
     )
@@ -37,15 +41,21 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+    resolved_name text;
 BEGIN
+    resolved_name := COALESCE(
+        NULLIF(NEW.raw_user_meta_data ->> 'full_name', ''),
+        NULLIF(NEW.raw_user_meta_data ->> 'name', ''),
+        ''
+    );
     UPDATE public.profiles
     SET
         email = COALESCE(NEW.email, email),
         email_verified_at = COALESCE(NEW.email_confirmed_at, email_verified_at),
         full_name = CASE
-            WHEN (full_name IS NULL OR full_name = '')
-                 AND COALESCE(NEW.raw_user_meta_data ->> 'full_name', '') <> ''
-            THEN NEW.raw_user_meta_data ->> 'full_name'
+            WHEN (full_name IS NULL OR full_name = '') AND resolved_name <> ''
+            THEN resolved_name
             ELSE full_name
         END
     WHERE id = NEW.id;
@@ -62,11 +72,16 @@ CREATE TRIGGER on_auth_user_updated
 INSERT INTO public.profiles (id, full_name, email, email_verified_at)
 SELECT
     u.id,
-    COALESCE(u.raw_user_meta_data ->> 'full_name', ''),
+    COALESCE(
+        NULLIF(u.raw_user_meta_data ->> 'full_name', ''),
+        NULLIF(u.raw_user_meta_data ->> 'name', ''),
+        ''
+    ),
     COALESCE(u.email, ''),
     u.email_confirmed_at
 FROM auth.users u
 ON CONFLICT (id) DO UPDATE SET
+    full_name = COALESCE(NULLIF(public.profiles.full_name, ''), EXCLUDED.full_name),
     email_verified_at = COALESCE(EXCLUDED.email_verified_at, public.profiles.email_verified_at);
 
 INSERT INTO public.schema_migrations (version)

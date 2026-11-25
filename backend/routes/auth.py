@@ -22,6 +22,10 @@ def get_public_auth_config():
                 cfg.SUPABASE_PUBLISHABLE_KEY if cfg.supabase_public_configured else ""
             ),
             "configured": cfg.supabase_public_configured,
+            "providers": {
+                "emailPassword": True,
+                "googleOAuth": True,
+            },
         },
         message="Public authentication configuration loaded.",
     )

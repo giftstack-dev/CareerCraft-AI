@@ -22,8 +22,30 @@ CareerCraft AI separates:
    6. `database/storage_policies.sql`
 3. Verify in **Storage → Buckets** that `uploaded-cvs` and `generated-documents` exist and are marked **Private** (`public = false`).
 4. Under **Authentication → Providers → Email**, keep **Confirm email** enabled.
-5. Configure a reliable custom SMTP provider so verification and recovery emails are delivered consistently.
-6. Set **Site URL** to your production `FRONTEND_URL` and add exact redirect URLs for `/verify-email.html` and `/reset-password.html`.
+5. **Configure Brevo Custom SMTP** under **Project Settings → Authentication → SMTP Settings** so verification and password recovery emails deliver reliably without hitting Supabase's built-in email cap:
+   - Toggle **Enable Custom SMTP** on.
+   - **Host:** `smtp-relay.brevo.com`
+   - **Port number:** `587`
+   - **Username:** Your Brevo SMTP login email (from Brevo **SMTP & API → SMTP**)
+   - **Password:** Your Brevo SMTP Key (not your account login password; store only inside Supabase Dashboard)
+   - **Sender email:** A verified sender address in Brevo (e.g., `noreply@yourdomain.com` or your verified Brevo sender)
+   - **Sender name:** `CareerCraft AI`
+   - **Minimum interval per user:** `60` seconds (aligned with the frontend 60-second resend/recovery cooldowns)
+6. **Configure Google OAuth** under **Google Cloud Console → APIs & Services → Credentials** and **Supabase → Authentication → Providers → Google**:
+   - In Google Cloud Console, configure the **OAuth consent screen** (External), add scopes `openid`, `email`, `profile`, and add your authorized domain (`supabase.co` and `yourcareercraft.netlify.app`).
+   - Create an **OAuth client ID** (Web application) with:
+     - **Authorized JavaScript origins:** `https://yourcareercraft.netlify.app` and `https://oznvkjvwzzfcjtmdwkls.supabase.co`
+     - **Authorized redirect URI (exact):** `https://oznvkjvwzzfcjtmdwkls.supabase.co/auth/v1/callback`
+   - Paste the **Client ID** and **Client Secret** into **Supabase → Authentication → Providers → Google** and toggle **Enable Sign in with Google** on.
+7. Under **Supabase → Authentication → URL Configuration**:
+   - **Site URL:** `https://yourcareercraft.netlify.app`
+   - **Redirect URLs:**
+     - `https://yourcareercraft.netlify.app/auth-callback.html`
+     - `https://yourcareercraft.netlify.app/verify-email.html`
+     - `https://yourcareercraft.netlify.app/reset-password.html`
+     - `http://localhost:3000/auth-callback.html`
+     - `http://localhost:3000/verify-email.html`
+     - `http://localhost:3000/reset-password.html`
 
 ---
 

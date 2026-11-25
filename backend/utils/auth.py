@@ -106,7 +106,9 @@ def require_auth(require_verified_email: bool = True) -> Callable:
             email = claims.get("email", "")
             role = claims.get("role", "")
             user_metadata = claims.get("user_metadata") or {}
-            full_name = str(user_metadata.get("full_name") or "").strip()
+            full_name = str(
+                user_metadata.get("full_name") or user_metadata.get("name") or ""
+            ).strip()
 
             if not user_id or role != "authenticated":
                 raise AuthError("Invalid authenticated user claims.", error_code="invalid_claims")
