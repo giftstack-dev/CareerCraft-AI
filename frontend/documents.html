@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Documents — CareerCraft AI</title>
+    <meta name="description" content="Edit, review, approve, restore versions, and export tailored CVs and application documents as PDF or DOCX." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading My Documents</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">My Documents</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="docs-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="toolbar-row">
+            <div class="toolbar-filters">
+              <input id="docs-search-input" type="search" class="form-input" placeholder="Search document title..." style="max-width: 260px;" />
+              <select id="docs-type-filter" class="form-input" style="max-width: 200px;">
+                <option value="">All document types</option>
+                <option value="cv">CV</option>
+                <option value="cover_letter">Cover Letter</option>
+                <option value="screening_response">Screening Response</option>
+                <option value="personal_statement">Personal Statement</option>
+                <option value="statement_of_purpose">Statement of Purpose</option>
+                <option value="professional_bio">Professional Bio</option>
+                <option value="other">Other</option>
+              </select>
+              <select id="docs-status-filter" class="form-input" style="max-width: 170px;">
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="approved">Approved</option>
+              </select>
+            </div>
+            <a href="/application-studio.html" class="btn btn-primary btn-sm">+ Generate New Draft</a>
+          </section>
+
+          <div class="split-workspace-aside">
+            <section class="card">
+              <h2 class="card-title">Document Library</h2>
+              <div id="docs-library-list" class="record-list"></div>
+            </section>
+
+            <section class="card">
+              <div id="docs-editor-panel"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/documents.js"></script>
+  </body>
+</html>

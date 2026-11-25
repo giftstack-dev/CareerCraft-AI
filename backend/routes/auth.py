@@ -106,11 +106,30 @@ def get_authenticated_session():
 @auth_bp.post("/onboarding-status")
 @require_auth(require_verified_email=True)
 def update_onboarding_status():
-    """Allow verified user to update onboarding completion or skip state."""
+    """Allow verified user to update onboarding step, completion, or skip state."""
     payload = request.get_json(silent=True) or {}
-    status = str(payload.get("onboarding_status", "")).strip()
-    if status not in ("not_started", "in_progress", "completed", "skipped"):
-        raise ValidationError("Invalid onboarding status value.")
+    updates: dict[str, object] = {}
+
+    if "onboarding_status" in payload:
+        status = str(payload.get("onboarding_status", "")).strip()
+        if status not in ("not_started", "in_progress", "completed", "skipped"):
+            raise ValidationError("Invalid onboarding status value.")
+        updates["onboarding_status"] = status
+
+    if "onboarding_step" in payload:
+        try:
+            step = int(payload.get("onboarding_step"))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("Invalid onboarding step value.") from exc
+        if step < 1 or step > 7:
+            raise ValidationError("Onboarding step must be between 1 and 7.")
+        updates["onboarding_step"] = step
+
+    if "full_name" in payload and str(payload.get("full_name", "")).strip():
+        updates["full_name"] = str(payload.get("full_name", "")).strip()[:120]
+
+    if not updates:
+        raise ValidationError("At least one onboarding field is required.")
 
     user = g.current_user
     _ensure_user_profile(user.user_id, user.email, user.full_name)
@@ -118,10 +137,10 @@ def update_onboarding_status():
     client = get_secret_client()
     updated = (
         client.table("profiles")
-        .update({"onboarding_status": status})
+        .update(updates)
         .eq("id", user.user_id)
         .select("id, full_name, email, onboarding_status, onboarding_step, updated_at")
         .execute()
     )
     profile = (updated.data or [{}])[0]
-    return success_response(data={"profile": profile}, message="Onboarding status updated.")
+    return success_response(data={"profile": profile}, message="Onboarding progress updated.")

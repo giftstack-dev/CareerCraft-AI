@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interview Preparation — CareerCraft AI</title>
+    <meta name="description" content="Prepare tailored General, Role-specific, Technical, and Behavioural interview answers grounded in your confirmed career profile." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading Interview Preparation</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Interview Preparation</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="interview-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <h2 class="card-title">Generate Role-Specific Interview Practice</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              Select one of your saved job opportunities to generate General, Role-Specific, Technical, and Behavioural questions with STAR guidance referencing only your confirmed experiences and projects.
+            </p>
+            <form id="interview-gen-form" class="form-stack">
+              <div class="form-row-2" style="align-items: end;">
+                <div class="form-group">
+                  <label class="form-label" for="interview-job-select">Target saved job opportunity *</label>
+                  <select id="interview-job-select" class="form-input" required></select>
+                </div>
+                <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+                  <button id="interview-gen-btn" type="submit" class="btn btn-primary">Generate Practice Questions</button>
+                  <a href="/job-analyzer.html" class="btn btn-secondary">Add Opportunity</a>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <div class="split-workspace-aside">
+            <section class="card">
+              <h3 class="card-title">Saved Practice Sessions</h3>
+              <div id="interview-sessions-list" class="record-list"></div>
+            </section>
+
+            <section class="card">
+              <div id="interview-session-detail"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/interview-prep.js"></script>
+  </body>
+</html>

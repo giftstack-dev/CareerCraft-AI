@@ -147,8 +147,10 @@ python3 -m unittest discover -s backend/tests -p "test_foundation.py" -v
 
 ---
 
-## Development Roadmap Progress
+## Platform Modules Implemented
 
-- **Phase 1 — Foundation:** Implemented.
-- **Phase 2 — Authentication & Account Security:** Implemented (real Supabase Auth registration, email verification, resend, login, forgot/reset password, logout, JWKS verification, protected pages, profile initialization).
-- **Phases 3–10:** Scheduled sequentially per specification.
+- **Foundation & Security:** Responsive CSS3 design system, Flask API factory, CORS & security headers, JWKS RS256/ES256 verification, server-side daily AI quota safeguard.
+- **Authentication & Onboarding:** Real Supabase Auth (registration, email verification, resend, login, forgot/reset password, logout), safe loading-gate route guards, and 7-step career profile onboarding with step resumption.
+- **Career Profile & CV Management:** Complete CRUD for personal details, summary/objective, experience, education, skills, projects, certifications, languages, and links; private PDF/DOCX CV upload, magic-byte validation, PyMuPDF/python-docx extraction, Gemini parsing, and safe non-overwriting merge.
+- **Job Analysis, Compatibility & Application Studio:** User-supplied job description analysis, transparent profile compatibility scoring, Quick & Guided generation of 7 document types across 4 layout templates.
+- **Document Editor, Tracker, Interview Prep & Settings:** Live document editor & template preview, immutable version history/restore, genuine binary PDF (ReportLab) and DOCX export, private Application Tracker, STAR-guided Interview Preparation, notifications, quota meter, and permanent account deletion.

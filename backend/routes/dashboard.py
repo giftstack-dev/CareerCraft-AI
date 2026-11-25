@@ -1,4 +1,4 @@
-"""System health, live dependency connectivity checks, and dashboard summary endpoints."""
+"""System health, live dependency connectivity checks, and real dashboard aggregation."""
 
 from __future__ import annotations
 
@@ -8,19 +8,30 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, current_app, g, request
 
 from services.gemini_service import GeminiService
+from services.profile_service import get_full_profile, handle_supabase_error
 from services.supabase_service import get_secret_client
 from utils.auth import require_auth
-from utils.errors import error_response, success_response
+from utils.errors import success_response
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+APPLICATION_STATUSES = [
+    "Saved",
+    "Preparing",
+    "Applied",
+    "Interview",
+    "Assessment",
+    "Offer Received",
+    "Not Selected",
+]
 
 
 def _http_get_json(url: str, headers: dict[str, str] | None = None, timeout: int = 8) -> tuple[int, Any]:
     req = urllib.request.Request(url, headers=headers or {}, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - HTTPS URLs from validated config
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         raw = resp.read().decode("utf-8", errors="replace")
         return resp.status, json.loads(raw) if raw else {}
 
@@ -144,7 +155,7 @@ def health_connectivity():
     """Verify actual live connectivity to Supabase Auth, JWKS, PostgreSQL, and Gemini API."""
     cfg = current_app.config["APP_CONFIG"]
     run_gen = request.args.get("mode", "full").strip().lower() != "light"
-    live = run_live_connectivity_checks(cfg, run_gemini_generation=run_gen)
+    live = run_live_connectivity_checks(cfg, run_generation_check=run_gen)
     return success_response(
         data={
             "status": live["overall_status"],
@@ -163,9 +174,125 @@ def health_connectivity():
 @dashboard_bp.get("/api/dashboard")
 @require_auth(require_verified_email=True)
 def get_dashboard():
-    """Dashboard aggregation endpoint (implemented in Phase 3)."""
-    return error_response(
-        "Dashboard aggregation will be enabled in Phase 3.",
-        status_code=501,
-        error_code="not_implemented_phase_1",
+    """Aggregate real authenticated user metrics, status summaries, and activity."""
+    user_id = g.current_user.user_id
+    full_profile = get_full_profile(user_id)
+    client = get_secret_client()
+
+    try:
+        jobs_res = (
+            client.table("job_opportunities")
+            .select("id, company_name, job_title, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        docs_res = (
+            client.table("generated_documents")
+            .select("id, document_title, document_type, document_status, updated_at")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        apps_res = (
+            client.table("applications")
+            .select("id, company_name, job_title, status, application_date, interview_date, follow_up_date, updated_at")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        cvs_res = (
+            client.table("uploaded_cvs")
+            .select("id, original_filename, parsing_status, confirmation_status, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        notif_res = (
+            client.table("notifications")
+            .select("id, notification_type, message, is_read, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(8)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        handle_supabase_error(exc)
+
+    jobs = jobs_res.data or []
+    docs = docs_res.data or []
+    apps = apps_res.data or []
+    cvs = cvs_res.data or []
+    notifications = notif_res.data or []
+
+    status_counts = {status: 0 for status in APPLICATION_STATUSES}
+    upcoming_interviews = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for app_item in apps:
+        st = app_item.get("status")
+        if st in status_counts:
+            status_counts[st] += 1
+        interview_dt = app_item.get("interview_date")
+        if interview_dt and str(interview_dt) >= now_iso:
+            upcoming_interviews.append(app_item)
+
+    upcoming_interviews.sort(key=lambda item: str(item.get("interview_date") or ""))
+
+    # Build chronological recent activity from real persisted events
+    activity: list[dict[str, str]] = []
+    for n in notifications:
+        activity.append(
+            {
+                "type": str(n.get("notification_type") or "activity"),
+                "message": str(n.get("message") or ""),
+                "timestamp": str(n.get("created_at") or ""),
+            }
+        )
+    for d in docs[:4]:
+        activity.append(
+            {
+                "type": "document",
+                "message": f"Updated document: {d.get('document_title')} ({d.get('document_status')})",
+                "timestamp": str(d.get("updated_at") or ""),
+            }
+        )
+    for j in jobs[:4]:
+        title = j.get("job_title") or "Untitled Role"
+        company = j.get("company_name") or "Target Employer"
+        activity.append(
+            {
+                "type": "job_opportunity",
+                "message": f"Saved opportunity: {title} — {company}",
+                "timestamp": str(j.get("created_at") or ""),
+            }
+        )
+    for cv in cvs[:3]:
+        activity.append(
+            {
+                "type": "cv_upload",
+                "message": f"Uploaded CV: {cv.get('original_filename')} ({cv.get('parsing_status')})",
+                "timestamp": str(cv.get("created_at") or ""),
+            }
+        )
+
+    activity.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+
+    return success_response(
+        data={
+            "profile": full_profile["profile"],
+            "completion": full_profile["completion"],
+            "counts": {
+                "saved_opportunities": len(jobs),
+                "generated_documents": len(docs),
+                "recorded_applications": len(apps),
+                "uploaded_cvs": len(cvs),
+            },
+            "application_status_summary": status_counts,
+            "recent_applications": apps[:5],
+            "upcoming_interviews": upcoming_interviews[:5],
+            "recent_documents": docs[:4],
+            "recent_activity": activity[:8],
+        },
+        message="Dashboard metrics loaded.",
     )

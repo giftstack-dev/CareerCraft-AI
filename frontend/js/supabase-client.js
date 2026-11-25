@@ -29,23 +29,24 @@ export async function getSupabaseClient() {
   return supabaseInstance;
 }
 
+/**
+ * Check server-confirmed email verification timestamps from Supabase Auth.
+ * Never rely solely on user-editable metadata fields.
+ */
 export function isUserEmailVerified(user) {
   if (!user) return false;
-  return Boolean(
-    user.email_confirmed_at ||
-      user.confirmed_at ||
-      (user.user_metadata && user.user_metadata.email_verified === true)
-  );
+  return Boolean(user.email_confirmed_at || user.confirmed_at);
 }
 
 /**
- * Verifies session against Flask /api/auth/me when backend is online,
- * or falls back cleanly to RLS-protected Supabase profiles table query.
+ * Verifies session against Flask /api/auth/me and initializes user profile.
+ * Distinguishes auth errors (401/403) from backend/database availability errors.
  */
 export async function syncUserProfile(session, user) {
-  if (!session || !user) return null;
+  if (!session || !user) {
+    return { errorStatus: 401, errorCode: 'missing_session', message: 'No active session found.' };
+  }
 
-  // 1. Try Flask backend verification + server-side initialization first
   const apiRes = await apiRequest('/api/auth/me', {
     method: 'GET',
     headers: {
@@ -57,43 +58,45 @@ export async function syncUserProfile(session, user) {
     return apiRes.data.profile;
   }
 
-  // If backend rejected auth explicitly (401/403), do not bypass
   if (apiRes.status === 401 || apiRes.status === 403) {
-    return { errorStatus: apiRes.status, message: apiRes.message };
+    return {
+      errorStatus: apiRes.status,
+      errorCode: (apiRes.error && apiRes.error.code) || 'auth_failed',
+      message: apiRes.message,
+    };
   }
 
-  // 2. If Flask server is unreachable (e.g., static preview), use RLS-enforced Supabase query
-  const supabase = await getSupabaseClient();
-  if (!supabase) return null;
+  // Fallback to direct RLS-enforced Supabase profile query only if backend was temporarily unreachable (status 0)
+  if (apiRes.status === 0) {
+    const supabase = await getSupabaseClient();
+    if (supabase) {
+      const { data: existing, error: selectErr } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at')
+        .eq('id', user.id)
+        .maybeSingle();
 
-  const { data: existing, error: selectErr } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (selectErr) {
-    return null;
+      if (!selectErr && existing) {
+        return existing;
+      }
+      if (selectErr && String(selectErr.code || '') === 'PGRST205') {
+        return {
+          errorStatus: 503,
+          errorCode: 'schema_not_initialized',
+          message:
+            'The Supabase database tables have not been initialized yet. Execute the SQL schema and migrations in Supabase before signing in.',
+        };
+      }
+    }
   }
 
-  if (existing) {
-    return existing;
-  }
-
-  const fullName = (user.user_metadata && user.user_metadata.full_name) || '';
-  const { data: inserted } = await supabase
-    .from('profiles')
-    .insert({
-      id: user.id,
-      email: user.email || '',
-      full_name: fullName,
-      onboarding_status: 'not_started',
-      onboarding_step: 1,
-    })
-    .select('id, full_name, email, onboarding_status, onboarding_step, created_at, updated_at')
-    .single();
-
-  return inserted || null;
+  return {
+    errorStatus: apiRes.status || 503,
+    errorCode: (apiRes.error && apiRes.error.code) || 'backend_unavailable',
+    message:
+      apiRes.message ||
+      'Unable to verify your profile with the CareerCraft AI backend. Please retry shortly.',
+  };
 }
 
 export async function signOutAndRedirect(redirectUrl = '/login.html?logged_out=1') {

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Career Profile — CareerCraft AI</title>
+    <meta name="description" content="Manage your confirmed career history, skills, education, projects, and certifications." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading career profile</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Career Profile</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="profile-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-5);">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3);">
+              <div>
+                <h2 class="card-title" style="margin-bottom: 0.25rem;">Confirmed Source of Truth</h2>
+                <p class="card-text">Every generated CV, cover letter, and compatibility check draws exclusively from the confirmed records below.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <span id="profile-completion-badge" class="status-badge status-badge-info tabular-nums">0% Complete</span>
+                <a href="/cv-upload.html" class="btn btn-secondary btn-sm">Import from CV</a>
+              </div>
+            </div>
+            <div class="progress-track">
+              <div id="profile-completion-fill" class="progress-fill" style="width: 0%;"></div>
+            </div>
+          </section>
+
+          <div id="profile-tabs" class="tabs-bar" role="tablist" aria-label="Career profile sections">
+            <button type="button" class="tab-btn is-active" data-tab="personal">Personal &amp; Links</button>
+            <button type="button" class="tab-btn" data-tab="summary">Summary &amp; Objective</button>
+            <button type="button" class="tab-btn" data-tab="experience">Experience</button>
+            <button type="button" class="tab-btn" data-tab="education">Education</button>
+            <button type="button" class="tab-btn" data-tab="skills">Skills</button>
+            <button type="button" class="tab-btn" data-tab="projects">Projects</button>
+            <button type="button" class="tab-btn" data-tab="certifications">Certifications</button>
+          </div>
+
+          <section id="profile-panel" class="card"></section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/profile.js"></script>
+  </body>
+</html>

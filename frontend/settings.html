@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings — CareerCraft AI</title>
+    <meta name="description" content="Manage your verified account settings, daily AI quota usage, activity notifications, and account deletion." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading Settings</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Account Settings</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="settings-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <div class="dashboard-grid-2">
+            <section class="card">
+              <h2 class="card-title">Verified Account</h2>
+              <div class="detail-list">
+                <div>
+                  <div class="detail-item-label">Full Name</div>
+                  <div id="settings-full-name" class="detail-item-value">—</div>
+                </div>
+                <div>
+                  <div class="detail-item-label">Email Address</div>
+                  <div id="settings-email" class="detail-item-value">—</div>
+                </div>
+                <div>
+                  <div class="detail-item-label">Verification</div>
+                  <div class="detail-item-value" style="color: var(--color-success-dark);">Verified</div>
+                </div>
+                <div>
+                  <div class="detail-item-label">Onboarding</div>
+                  <div id="settings-onboarding" class="detail-item-value">—</div>
+                </div>
+              </div>
+              <div style="margin-top: var(--space-5); display: flex; gap: var(--space-3); flex-wrap: wrap;">
+                <a href="/profile.html" class="btn btn-secondary btn-sm">Edit Career Profile</a>
+                <a href="/onboarding.html" class="btn btn-secondary btn-sm">Review Onboarding</a>
+              </div>
+            </section>
+
+            <section class="card">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3);">
+                <h2 class="card-title" style="margin-bottom: 0;">Daily AI Preparation Usage</h2>
+                <span id="usage-count-badge" class="status-badge status-badge-info tabular-nums">0 / 25</span>
+              </div>
+              <p id="usage-reset-note" class="card-text" style="margin-bottom: var(--space-3);">Resets daily at 00:00 UTC. Saved data always remains accessible.</p>
+              <div class="progress-track" style="margin-bottom: var(--space-4);">
+                <div id="usage-progress-fill" class="progress-fill" style="width: 0%;"></div>
+              </div>
+              <div id="usage-recent-list" class="record-list"></div>
+            </section>
+          </div>
+
+          <div class="dashboard-grid-2">
+            <section class="card">
+              <h2 class="card-title">Change Password</h2>
+              <form id="password-update-form" class="form-stack">
+                <div class="form-group">
+                  <label class="form-label" for="new-password-input">New password (min 8 characters)</label>
+                  <input id="new-password-input" type="password" class="form-input" minlength="8" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="confirm-password-input">Confirm new password</label>
+                  <input id="confirm-password-input" type="password" class="form-input" minlength="8" required />
+                </div>
+                <div>
+                  <button id="password-update-btn" type="submit" class="btn btn-primary">Update Password</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
+                <h2 class="card-title" style="margin-bottom: 0;">Notifications</h2>
+                <button id="mark-all-read-btn" type="button" class="btn btn-secondary btn-sm">Mark All Read</button>
+              </div>
+              <div id="notifications-list" class="record-list"></div>
+            </section>
+          </div>
+
+          <section class="card" style="border-color: #FECACA;">
+            <h2 class="card-title" style="color: #991B1B;">Delete Account</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              Permanently deletes your CareerCraft AI account, Career Profile, uploaded CVs, saved job opportunities, generated documents, and application tracker records. This cannot be undone.
+            </p>
+            <form id="delete-account-form" class="form-stack" style="max-width: 440px;">
+              <div class="form-group">
+                <label class="form-label" for="delete-confirm-input">Type DELETE to confirm permanent deletion</label>
+                <input id="delete-confirm-input" type="text" class="form-input" placeholder="DELETE" required />
+              </div>
+              <div>
+                <button id="delete-account-btn" type="submit" class="btn btn-danger">Permanently Delete Account</button>
+              </div>
+            </form>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/settings.js"></script>
+  </body>
+</html>

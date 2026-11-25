@@ -17,13 +17,40 @@ function getMissingConfigMessage() {
   return 'Supabase runtime configuration was not found. Ensure SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are set in your environment and restart the server.';
 }
 
-function redirectAfterVerifiedAuth(profile) {
+function isSafeInternalPath(path) {
+  if (!path || typeof path !== 'string') return false;
+  if (!path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return false;
+  try {
+    const resolved = new URL(path, window.location.origin);
+    return resolved.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function redirectAfterVerifiedAuth(profile, alertBox) {
+  if (profile && profile.errorStatus) {
+    if (alertBox) {
+      showAlert(
+        alertBox,
+        profile.message || 'Unable to verify your workspace profile right now. Please try again.',
+        'error'
+      );
+    }
+    return false;
+  }
+
   const status = profile && profile.onboarding_status;
   if (status === 'completed' || status === 'skipped') {
     window.location.replace('/dashboard.html');
-  } else {
-    window.location.replace('/onboarding.html');
+    return true;
   }
+  if (status === 'in_progress' && profile.onboarding_step) {
+    window.location.replace(`/onboarding.html?step=${encodeURIComponent(profile.onboarding_step)}`);
+    return true;
+  }
+  window.location.replace('/onboarding.html');
+  return true;
 }
 
 /* --------------------------------------------------------------------------
@@ -145,10 +172,10 @@ function initRegisterPage() {
 
       sessionStorage.setItem(PENDING_EMAIL_KEY, email);
 
-      // If Supabase returned an already-confirmed active session (when confirmation disabled)
+      // If Supabase returned an already-confirmed active session
       if (data.session && isUserEmailVerified(data.user)) {
         const profile = await syncUserProfile(data.session, data.user);
-        redirectAfterVerifiedAuth(profile);
+        redirectAfterVerifiedAuth(profile, alertBox);
         return;
       }
 
@@ -261,12 +288,21 @@ async function initVerifyEmailPage() {
       if (user && isUserEmailVerified(user)) {
         sessionStorage.removeItem(PENDING_EMAIL_KEY);
         statusHeading.textContent = 'Email verified';
-        statusCopy.textContent = 'Initializing your career profile and redirecting to onboarding...';
-        showAlert(alertBox, 'Your email address has been verified. Redirecting to onboarding...', 'success');
-        await syncUserProfile(session, user);
+        statusCopy.textContent = 'Initializing your career profile and checking onboarding status...';
+        const profile = await syncUserProfile(session, user);
+        if (profile && profile.errorStatus) {
+          showAlert(
+            alertBox,
+            profile.message || 'Your email is verified, but we could not initialize your profile in Supabase. Please sign in or retry.',
+            'error'
+          );
+          statusHeading.textContent = 'Profile initialization issue';
+          return;
+        }
+        showAlert(alertBox, 'Your email address has been verified. Redirecting...', 'success');
         setTimeout(() => {
-          window.location.replace('/onboarding.html');
-        }, 700);
+          redirectAfterVerifiedAuth(profile, alertBox);
+        }, 500);
         return;
       }
     }
@@ -362,10 +398,21 @@ async function initLoginPage() {
   const supabase = await getSupabaseClient();
   if (supabase) {
     const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData && sessionData.session && isUserEmailVerified(sessionData.session.user)) {
-      const profile = await syncUserProfile(sessionData.session, sessionData.session.user);
-      redirectAfterVerifiedAuth(profile);
-      return;
+    if (sessionData && sessionData.session) {
+      const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: null }));
+      const verifiedUser = userData && userData.user;
+      if (verifiedUser && isUserEmailVerified(verifiedUser)) {
+        const profile = await syncUserProfile(sessionData.session, verifiedUser);
+        if (profile && !profile.errorStatus) {
+          const nextUrl = params.get('next');
+          if (isSafeInternalPath(nextUrl)) {
+            window.location.replace(nextUrl);
+          } else {
+            redirectAfterVerifiedAuth(profile, alertBox);
+          }
+          return;
+        }
+      }
     }
   }
 
@@ -430,7 +477,9 @@ async function initLoginPage() {
         return;
       }
 
-      if (!data.session || !data.user || !isUserEmailVerified(data.user)) {
+      const { data: userData } = await client.auth.getUser();
+      const verifiedUser = (userData && userData.user) || data.user;
+      if (!data.session || !verifiedUser || !isUserEmailVerified(verifiedUser)) {
         sessionStorage.setItem(PENDING_EMAIL_KEY, email);
         await client.auth.signOut();
         showAlert(alertBox, 'Please verify your email address before signing in.', 'error');
@@ -440,17 +489,25 @@ async function initLoginPage() {
         return;
       }
 
-      const profile = await syncUserProfile(data.session, data.user);
+      const profile = await syncUserProfile(data.session, verifiedUser);
       if (profile && profile.errorStatus === 403) {
         window.location.replace('/verify-email.html');
         return;
       }
+      if (profile && profile.errorStatus) {
+        showAlert(
+          alertBox,
+          profile.message || 'Sign-in succeeded, but we could not load your database profile. Please retry.',
+          'error'
+        );
+        return;
+      }
 
       const nextUrl = params.get('next');
-      if (nextUrl && nextUrl.startsWith('/') && !nextUrl.startsWith('//')) {
+      if (isSafeInternalPath(nextUrl)) {
         window.location.replace(nextUrl);
       } else {
-        redirectAfterVerifiedAuth(profile);
+        redirectAfterVerifiedAuth(profile, alertBox);
       }
     } catch {
       showAlert(alertBox, 'Unable to reach the authentication service. Please try again.', 'error');

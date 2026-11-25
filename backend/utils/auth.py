@@ -66,15 +66,30 @@ def decode_supabase_jwt(token: str) -> dict[str, Any]:
         raise AuthError("Invalid authentication token.", error_code="invalid_token") from exc
 
 
-def _is_email_verified(claims: dict[str, Any]) -> bool:
-    """Determine verified email status from Supabase JWT claims."""
-    user_metadata = claims.get("user_metadata") or {}
-    if claims.get("email_confirmed_at"):
-        return True
-    if user_metadata.get("email_verified") is True:
+def _is_email_verified(claims: dict[str, Any], user_id: str) -> bool:
+    """Determine verified email status from server-confirmed claims or auth.users."""
+    if claims.get("email_confirmed_at") or claims.get("confirmed_at"):
         return True
     if claims.get("email_verified") is True:
         return True
+
+    # Fall back to authoritative auth.users record when JWT omits top-level confirmation claim
+    if current_app.config.get("TESTING"):
+        return False
+
+    try:
+        from services.supabase_service import get_secret_client
+
+        admin_res = get_secret_client().auth.admin.get_user_by_id(user_id)
+        auth_user = getattr(admin_res, "user", None)
+        if auth_user and (
+            getattr(auth_user, "email_confirmed_at", None)
+            or getattr(auth_user, "confirmed_at", None)
+        ):
+            return True
+    except Exception:  # noqa: BLE001
+        return False
+
     return False
 
 
@@ -92,10 +107,11 @@ def require_auth(require_verified_email: bool = True) -> Callable:
             role = claims.get("role", "")
             user_metadata = claims.get("user_metadata") or {}
             full_name = str(user_metadata.get("full_name") or "").strip()
-            verified = _is_email_verified(claims)
 
             if not user_id or role != "authenticated":
                 raise AuthError("Invalid authenticated user claims.", error_code="invalid_claims")
+
+            verified = _is_email_verified(claims, user_id)
 
             if require_verified_email and not verified:
                 raise ForbiddenError(

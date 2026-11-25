@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Application Studio — CareerCraft AI</title>
+    <meta name="description" content="Generate tailored CVs, cover letters, statements, bios, and screening responses grounded strictly in your confirmed Career Profile." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading Application Studio</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Application Studio</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="studio-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <h2 class="card-title">Generate Tailored Application Documents</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              Every draft uses only your confirmed Career Profile facts—never fabricating employers, metrics, or skills.
+            </p>
+
+            <div class="tabs-bar" role="tablist" aria-label="Generation mode">
+              <button type="button" id="mode-quick-btn" class="tab-btn is-active" data-mode="quick">Quick Generate</button>
+              <button type="button" id="mode-guided-btn" class="tab-btn" data-mode="guided">Guided Generate</button>
+            </div>
+
+            <form id="studio-form" class="form-stack">
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label class="form-label" for="studio-job-select">Target saved opportunity (optional)</label>
+                  <select id="studio-job-select" class="form-input"></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="studio-tone-select">Writing tone</label>
+                  <select id="studio-tone-select" class="form-input">
+                    <option value="professional">Professional &amp; Clear</option>
+                    <option value="confident">Confident &amp; Impact-Focused</option>
+                    <option value="concise">Concise &amp; Direct</option>
+                    <option value="academic">Academic / Research-Oriented</option>
+                    <option value="warm">Warm &amp; Collaborative</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="form-label">Select CV / document template</span>
+                <div class="form-row-2" id="studio-templates-grid">
+                  <label class="record-item" style="cursor: pointer;">
+                    <span><strong>Classic Professional</strong><br /><span class="card-text">Traditional serif headings &amp; structured sections</span></span>
+                    <input type="radio" name="template" value="classic_professional" checked />
+                  </label>
+                  <label class="record-item" style="cursor: pointer;">
+                    <span><strong>Modern Minimalist</strong><br /><span class="card-text">Clean sans-serif hierarchy with blue accents</span></span>
+                    <input type="radio" name="template" value="modern_minimalist" />
+                  </label>
+                  <label class="record-item" style="cursor: pointer;">
+                    <span><strong>Technical &amp; Engineering</strong><br /><span class="card-text">Skills, architecture &amp; project-forward layout</span></span>
+                    <input type="radio" name="template" value="technical_engineering" />
+                  </label>
+                  <label class="record-item" style="cursor: pointer;">
+                    <span><strong>Graduate / Entry-Level</strong><br /><span class="card-text">Highlights education, projects &amp; transferable skills</span></span>
+                    <input type="radio" name="template" value="graduate_entry_level" />
+                  </label>
+                </div>
+              </div>
+
+              <div id="guided-doc-types-wrap" class="form-group" hidden>
+                <span class="form-label">Document types to generate (select up to 4)</span>
+                <div class="chip-list">
+                  <label class="chip"><input type="checkbox" name="doc_types" value="cv" checked /> Tailored CV</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="cover_letter" /> Cover Letter</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="screening_response" /> Screening Question Responses</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="personal_statement" /> Personal Statement</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="statement_of_purpose" /> Statement of Purpose</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="professional_bio" /> Professional Bio</label>
+                  <label class="chip"><input type="checkbox" name="doc_types" value="other" /> Other Supporting Note</label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="studio-extra-context">Additional emphasis or verified instructions (optional)</label>
+                <textarea id="studio-extra-context" class="form-input" placeholder="e.g., Focus on my capstone project and customer support communication skills..."></textarea>
+              </div>
+
+              <div style="display: flex; flex-wrap: wrap; gap: var(--space-3);">
+                <button id="studio-generate-btn" type="submit" class="btn btn-primary">Generate Grounded Draft(s)</button>
+                <a href="/profile.html" class="btn btn-secondary">Verify Profile Facts</a>
+                <a href="/documents.html" class="btn btn-secondary">Open Document Library</a>
+              </div>
+            </form>
+          </section>
+
+          <section class="card">
+            <h3 class="card-title">Generated Drafts Ready for Review</h3>
+            <div id="studio-results-list" class="record-list"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/application-studio.js"></script>
+  </body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Job Analyser — CareerCraft AI</title>
+    <meta name="description" content="Analyse user-supplied job descriptions and compare compatibility against your confirmed Career Profile." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading Job Analyser</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Job Analyser &amp; Compatibility</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="jobs-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <h2 class="card-title">Paste a Job Description You Want to Target</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              CareerCraft AI analyses only the job descriptions you supply directly—helping you extract key requirements, compare against your confirmed Career Profile, and review gaps transparently.
+            </p>
+            <form id="job-analyze-form" class="form-stack">
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label class="form-label" for="job-title-input">Job title (optional)</label>
+                  <input id="job-title-input" type="text" class="form-input" placeholder="e.g., Backend Software Engineer" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="job-company-input">Employer / company (optional)</label>
+                  <input id="job-company-input" type="text" class="form-input" placeholder="e.g., Acme Corp" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="job-description-input">Job description text *</label>
+                <textarea id="job-description-input" class="form-input" style="min-height: 160px;" required placeholder="Paste the full job posting, responsibilities, qualifications, and application instructions here..."></textarea>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label class="form-label" for="job-instructions-input">Additional notes or instructions (optional)</label>
+                  <textarea id="job-instructions-input" class="form-input" placeholder="e.g., Emphasise my Python API experience or mention relocation readiness..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="job-screening-input">Screening questions (optional, one per line)</label>
+                  <textarea id="job-screening-input" class="form-input" placeholder="Paste any application screening questions here..."></textarea>
+                </div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: var(--space-3);">
+                <button id="analyze-job-btn" type="submit" class="btn btn-primary">Save &amp; Analyse Job Description</button>
+                <button id="save-only-job-btn" type="button" class="btn btn-secondary">Save Without AI Analysis</button>
+              </div>
+            </form>
+          </section>
+
+          <div class="split-workspace-aside">
+            <section class="card">
+              <h3 class="card-title">Saved Opportunities</h3>
+              <div id="saved-jobs-list" class="record-list"></div>
+            </section>
+
+            <section class="card">
+              <h3 class="card-title">Extracted Requirements &amp; Profile Compatibility</h3>
+              <div id="job-detail-panel"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/job-analyzer.js"></script>
+  </body>
+</html>

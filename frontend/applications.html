@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Application Tracker — CareerCraft AI</title>
+    <meta name="description" content="Private personal job application tracker with linked documents, dates, and status milestones." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading Application Tracker</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">Application Tracker</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="tracker-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <h2 id="tracker-form-title" class="card-title">Add Application Record</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              Keep a private log of applications you submit externally, link your tailored documents, and track interview or follow-up dates.
+            </p>
+            <form id="tracker-form" class="form-stack">
+              <div class="form-row-3">
+                <div class="form-group">
+                  <label class="form-label" for="app-company-input">Company name *</label>
+                  <input id="app-company-input" type="text" class="form-input" required placeholder="e.g., Acme Corp" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="app-title-input">Job title *</label>
+                  <input id="app-title-input" type="text" class="form-input" required placeholder="e.g., Data Analyst" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="app-status-select">Status</label>
+                  <select id="app-status-select" class="form-input">
+                    <option value="Saved">Saved</option>
+                    <option value="Preparing">Preparing</option>
+                    <option value="Applied">Applied</option>
+                    <option value="Interview">Interview</option>
+                    <option value="Assessment">Assessment</option>
+                    <option value="Offer Received">Offer Received</option>
+                    <option value="Not Selected">Not Selected</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row-3">
+                <div class="form-group">
+                  <label class="form-label" for="app-date-input">Application date</label>
+                  <input id="app-date-input" type="date" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="app-interview-input">Interview date &amp; time</label>
+                  <input id="app-interview-input" type="datetime-local" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="app-followup-input">Follow-up reminder date</label>
+                  <input id="app-followup-input" type="date" class="form-input" />
+                </div>
+              </div>
+
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label class="form-label" for="app-job-link">Linked saved opportunity (optional)</label>
+                  <select id="app-job-link" class="form-input"></select>
+                </div>
+                <div class="form-group">
+                  <span class="form-label">Associated tailored documents (optional)</span>
+                  <div id="app-docs-checkboxes" class="chip-list"></div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="app-notes-input">Private notes</label>
+                <textarea id="app-notes-input" class="form-input" placeholder="Contact name, submission portal reference, key follow-up points..."></textarea>
+              </div>
+
+              <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+                <button id="tracker-submit-btn" type="submit" class="btn btn-primary">Save Application</button>
+                <button id="tracker-cancel-edit-btn" type="button" class="btn btn-secondary" hidden>Cancel Edit</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="card">
+            <div class="toolbar-row">
+              <div class="toolbar-filters">
+                <input id="tracker-search-input" type="search" class="form-input" placeholder="Search company, role, or notes..." style="max-width: 280px;" />
+                <select id="tracker-status-filter" class="form-input" style="max-width: 190px;">
+                  <option value="">All statuses</option>
+                  <option value="Saved">Saved</option>
+                  <option value="Preparing">Preparing</option>
+                  <option value="Applied">Applied</option>
+                  <option value="Interview">Interview</option>
+                  <option value="Assessment">Assessment</option>
+                  <option value="Offer Received">Offer Received</option>
+                  <option value="Not Selected">Not Selected</option>
+                </select>
+              </div>
+              <span id="tracker-count-label" class="card-text">0 applications</span>
+            </div>
+
+            <div id="tracker-list" class="record-list"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/applications.js"></script>
+  </body>
+</html>

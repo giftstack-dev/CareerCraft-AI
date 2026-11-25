@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My CVs — CareerCraft AI</title>
+    <meta name="description" content="Upload PDF or DOCX CVs, extract details with AI, and confirm merges safely into your career profile." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/variables.css" />
+    <link rel="stylesheet" href="/css/global.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="auth-loading-gate" class="auth-gate" role="status" aria-live="polite">
+      <div class="auth-gate-card">
+        <div class="auth-gate-spinner" aria-hidden="true"></div>
+        <h1 class="card-title">Loading CV manager</h1>
+        <p class="card-text">Verifying your authenticated session...</p>
+      </div>
+    </div>
+
+    <div id="protected-app-shell" class="workspace-layout" hidden>
+      <aside class="workspace-sidebar" aria-label="Workspace navigation"></aside>
+
+      <div class="workspace-main-col">
+        <header class="workspace-topbar">
+          <h1 class="workspace-page-title">My CVs</h1>
+          <div class="workspace-user-bar">
+            <span id="header-user-name">Account</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-logout-btn>Logout</button>
+          </div>
+        </header>
+
+        <main id="main-content" class="workspace-content">
+          <div id="cv-alert" class="alert" role="alert" hidden style="margin-bottom: var(--space-5);"></div>
+
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <h2 class="card-title">Upload an Existing CV (PDF or DOCX)</h2>
+            <p class="card-text" style="margin-bottom: var(--space-4);">
+              Uploaded files are stored privately in your account, extracted securely, and reviewed by you before anything is added to your Career Profile.
+            </p>
+            <div id="cv-dropzone" class="upload-dropzone" tabindex="0" role="button" aria-label="Upload PDF or DOCX CV file">
+              <p style="font-weight: 600; color: var(--color-navy); margin-bottom: 0.35rem;">Drag &amp; drop your PDF or DOCX CV here, or click to browse</p>
+              <p class="card-text">Accepted formats: .pdf, .docx (max 10 MB)</p>
+              <input id="cv-file-input" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+            </div>
+            <div id="cv-upload-status" class="card-text" style="margin-top: var(--space-3);"></div>
+          </section>
+
+          <div class="split-workspace-aside">
+            <section class="card">
+              <h3 class="card-title">Upload History</h3>
+              <div id="cv-history-list" class="record-list"></div>
+            </section>
+
+            <section class="card">
+              <h3 class="card-title">Review Extracted Details &amp; Confirm Merge</h3>
+              <p class="card-text" style="margin-bottom: var(--space-4);">
+                Select a parsed CV on the left to inspect extracted details. Unchecked items are skipped, and existing confirmed profile fields are never overwritten unless you explicitly choose to overwrite them.
+              </p>
+              <div id="cv-review-panel"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/js/cv-upload.js"></script>
+  </body>
+</html>

@@ -13,7 +13,13 @@ CareerCraft AI separates:
 
 ## 1. Supabase Production Configuration
 1. Create a production Supabase project in your target region.
-2. Execute `database/schema.sql`, `database/migrations/001_initial_schema.sql`, `database/migrations/002_auth_profile_sync.sql`, `database/rls_policies.sql`, and `database/storage_policies.sql` in the SQL Editor.
+2. Execute the SQL files in order in the Supabase SQL Editor:
+   1. `database/schema.sql`
+   2. `database/migrations/001_initial_schema.sql`
+   3. `database/migrations/002_auth_profile_sync.sql`
+   4. `database/migrations/003_grants_and_permissions.sql`
+   5. `database/rls_policies.sql`
+   6. `database/storage_policies.sql`
 3. Verify in **Storage → Buckets** that `uploaded-cvs` and `generated-documents` exist and are marked **Private** (`public = false`).
 4. Under **Authentication → Providers → Email**, keep **Confirm email** enabled.
 5. Configure a reliable custom SMTP provider so verification and recovery emails are delivered consistently.

@@ -60,6 +60,8 @@ class TestApiSkeleton(unittest.TestCase):
             ("GET", "/api/applications"),
             ("GET", "/api/interviews"),
             ("GET", "/api/usage"),
+            ("GET", "/api/notifications"),
+            ("POST", "/api/account/delete"),
         ]
         for method, route in protected_routes:
             resp = self.client.open(route, method=method)
