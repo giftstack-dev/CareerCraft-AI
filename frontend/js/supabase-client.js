@@ -31,17 +31,38 @@ export async function getSupabaseClient(options = {}) {
 }
 
 /**
- * Check server-confirmed email verification timestamps from Supabase Auth.
- * Never rely solely on user-editable metadata fields.
+ * Check server-confirmed email verification timestamps and verified OAuth identities
+ * from the Supabase Auth user record returned by supabase.auth.getUser().
+ * Never rely on user-editable user_metadata fields.
  */
 export function isUserEmailVerified(user) {
-  if (!user) return false;
-  return Boolean(user.email_confirmed_at || user.confirmed_at);
+  if (!user || typeof user !== 'object') return false;
+  if (user.email_confirmed_at || user.confirmed_at) {
+    return true;
+  }
+
+  const userEmail = String(user.email || '').trim().toLowerCase();
+  if (Array.isArray(user.identities)) {
+    return user.identities.some((ident) => {
+      if (!ident || typeof ident !== 'object') return false;
+      const provider = String(ident.provider || '').trim().toLowerCase();
+      const identData = ident.identity_data && typeof ident.identity_data === 'object' ? ident.identity_data : {};
+      const identEmail = String(identData.email || ident.email || '').trim().toLowerCase();
+      return (
+        provider === 'google' &&
+        identData.email_verified === true &&
+        (!userEmail || !identEmail || identEmail === userEmail)
+      );
+    });
+  }
+
+  return false;
 }
 
 /**
  * Verifies session against Flask /api/auth/me and initializes user profile.
- * Distinguishes auth errors (401/403), cancellations, and backend/database availability errors.
+ * Strictly distinguishes unverified accounts (403 email_not_verified), invalid sessions (401),
+ * cancellations, and backend/SDK/database availability errors (503).
  */
 export async function syncUserProfile(session, user, options = {}) {
   if (!session || !user) {
@@ -73,15 +94,26 @@ export async function syncUserProfile(session, user, options = {}) {
     return apiRes.data.profile;
   }
 
-  if (apiRes.status === 401 || apiRes.status === 403) {
+  const errorCode = (apiRes.error && apiRes.error.code) || '';
+
+  if (apiRes.status === 401) {
     return {
-      errorStatus: apiRes.status,
-      errorCode: (apiRes.error && apiRes.error.code) || 'auth_failed',
-      message: apiRes.message,
+      errorStatus: 401,
+      errorCode: errorCode || 'invalid_session',
+      message: apiRes.message || 'Your session is invalid or has expired. Please sign in again.',
     };
   }
 
-  // Fallback to direct RLS-enforced Supabase profile query only if backend was temporarily unreachable (status 0)
+  if (apiRes.status === 403) {
+    return {
+      errorStatus: 403,
+      errorCode: errorCode || 'forbidden',
+      message: apiRes.message || 'Access denied for this account.',
+    };
+  }
+
+  // Read-only RLS profile lookup ONLY if the backend was unreachable (status 0),
+  // so existing returning users are not blocked unnecessarily while missing/broken schemas are surfaced accurately.
   if (apiRes.status === 0 && !(signal && signal.aborted)) {
     try {
       const supabase = await getSupabaseClient({ signal });
@@ -103,6 +135,9 @@ export async function syncUserProfile(session, user, options = {}) {
               'The Supabase database tables have not been initialized yet. Execute the SQL schema and migrations in Supabase before signing in.',
           };
         }
+        if (selectErr) {
+          console.warn('[CareerCraft] Direct Supabase profile fallback failed:', selectErr.code || 'unknown_error');
+        }
       }
     } catch {
       // Fall through to structured backend unavailable response below
@@ -111,10 +146,10 @@ export async function syncUserProfile(session, user, options = {}) {
 
   return {
     errorStatus: apiRes.status || 503,
-    errorCode: (apiRes.error && apiRes.error.code) || 'backend_unavailable',
+    errorCode: errorCode || 'backend_unavailable',
     message:
       apiRes.message ||
-      'Unable to verify your profile with the CareerCraft AI backend. Please retry shortly.',
+      'Unable to initialize or load your profile from the CareerCraft AI backend. Please retry shortly.',
   };
 }
 

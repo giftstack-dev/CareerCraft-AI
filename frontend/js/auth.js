@@ -174,12 +174,12 @@ function attachPersistedCooldown({ storageKey, button, idleLabel, activePrefix }
   };
 }
 
-function redirectAfterVerifiedAuth(profile, alertBox) {
+function redirectAfterVerifiedAuth(profile, alertBox, nextUrl = '') {
   if (profile && profile.errorStatus) {
     if (alertBox) {
       showAlert(
         alertBox,
-        profile.message || 'Unable to verify your workspace profile right now. Please try again.',
+        profile.message || 'Unable to initialize or load your workspace profile right now. Please try again.',
         'error'
       );
     }
@@ -188,6 +188,10 @@ function redirectAfterVerifiedAuth(profile, alertBox) {
 
   const status = profile && profile.onboarding_status;
   if (status === 'completed' || status === 'skipped') {
+    if (isSafeInternalPath(nextUrl)) {
+      window.location.replace(nextUrl);
+      return true;
+    }
     window.location.replace('/dashboard.html');
     return true;
   }
@@ -388,29 +392,30 @@ async function initAuthCallbackPage() {
         }
       },
     });
-    if (profile && profile.errorStatus === 403) {
+    if (profile && profile.errorStatus === 403 && profile.errorCode === 'email_not_verified') {
       sessionStorage.setItem(PENDING_EMAIL_KEY, user.email || '');
       window.location.replace('/verify-email.html');
       return;
     }
     if (profile && profile.errorStatus) {
-      showCallbackError(
+      const errorTitle =
         profile.errorCode === 'schema_not_initialized'
           ? 'Database setup required'
-          : 'Profile synchronization issue',
-        profile.message || 'Signed in with Google, but we could not load your profile. Please retry.'
+          : profile.errorCode === 'supabase_key_error' || profile.errorCode === 'supabase_key_misconfigured'
+            ? 'Authentication key configuration issue'
+            : profile.errorStatus === 401
+              ? 'Session expired'
+              : 'Profile initialization issue';
+      showCallbackError(
+        errorTitle,
+        profile.message || 'Signed in with Google, but we could not initialize your profile. Please retry.'
       );
       return;
     }
 
     const storedNext = sessionStorage.getItem(OAUTH_NEXT_KEY);
     sessionStorage.removeItem(OAUTH_NEXT_KEY);
-    if (isSafeInternalPath(storedNext)) {
-      window.location.replace(storedNext);
-      return;
-    }
-
-    redirectAfterVerifiedAuth(profile, alertBox);
+    redirectAfterVerifiedAuth(profile, alertBox, storedNext || '');
   } catch (err) {
     showCallbackError(
       'Sign-in error',
@@ -673,12 +678,40 @@ async function initVerifyEmailPage() {
           },
         });
         if (profile && profile.errorStatus) {
+          if (profile.errorStatus === 403 && profile.errorCode === 'email_not_verified') {
+            statusHeading.textContent = 'Email verification pending';
+            statusCopy.textContent =
+              'Your email address has not finished confirming yet. Request a fresh verification link below if needed.';
+            showAlert(alertBox, profile.message, 'error');
+            return;
+          }
+
+          statusHeading.textContent =
+            profile.errorCode === 'schema_not_initialized'
+              ? 'Database setup required'
+              : profile.errorStatus === 401
+                ? 'Session verification issue'
+                : 'Profile initialization issue';
+          statusCopy.textContent =
+            'Your email is verified, but we could not finish preparing your workspace profile yet.';
           showAlert(
             alertBox,
-            profile.message || 'Your email is verified, but we could not initialize your profile in Supabase. Please sign in or retry.',
+            profile.message ||
+              'Your email is verified, but we could not initialize your profile in Supabase. Please retry or sign in again.',
             'error'
           );
-          statusHeading.textContent = 'Profile initialization issue';
+
+          if (!document.getElementById('retry-profile-setup-btn') && resendForm) {
+            const retryBtn = document.createElement('button');
+            retryBtn.id = 'retry-profile-setup-btn';
+            retryBtn.type = 'button';
+            retryBtn.className = 'btn btn-primary btn-full';
+            retryBtn.style.marginBottom = 'var(--space-4)';
+            retryBtn.textContent = 'Retry Workspace Setup';
+            retryBtn.addEventListener('click', () => window.location.reload());
+            resendForm.parentNode.insertBefore(retryBtn, resendForm);
+            resendForm.hidden = true;
+          }
           return;
         }
         showAlert(alertBox, 'Your email address has been verified. Redirecting...', 'success');
@@ -783,11 +816,7 @@ async function initLoginPage() {
         });
         if (profile && !profile.errorStatus) {
           const nextUrl = params.get('next');
-          if (isSafeInternalPath(nextUrl)) {
-            window.location.replace(nextUrl);
-          } else {
-            redirectAfterVerifiedAuth(profile, alertBox);
-          }
+          redirectAfterVerifiedAuth(profile, alertBox, nextUrl || '');
           return;
         }
       }
@@ -885,25 +914,22 @@ async function initLoginPage() {
           );
         },
       });
-      if (profile && profile.errorStatus === 403) {
+      if (profile && profile.errorStatus === 403 && profile.errorCode === 'email_not_verified') {
+        sessionStorage.setItem(PENDING_EMAIL_KEY, email);
         window.location.replace('/verify-email.html');
         return;
       }
       if (profile && profile.errorStatus) {
         showAlert(
           alertBox,
-          profile.message || 'Sign-in succeeded, but we could not load your database profile. Please retry.',
+          profile.message || 'Sign-in succeeded, but we could not initialize or load your database profile. Please retry.',
           'error'
         );
         return;
       }
 
       const nextUrl = params.get('next');
-      if (isSafeInternalPath(nextUrl)) {
-        window.location.replace(nextUrl);
-      } else {
-        redirectAfterVerifiedAuth(profile, alertBox);
-      }
+      redirectAfterVerifiedAuth(profile, alertBox, nextUrl || '');
     } catch (err) {
       showAlert(alertBox, formatAuthErrorMessage(err, 'login'), 'error');
     } finally {

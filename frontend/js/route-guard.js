@@ -205,18 +205,26 @@ export async function enforceProtectedRoute() {
       return null;
     }
 
-    if (profile && profile.errorStatus === 403) {
+    if (profile && profile.errorStatus === 403 && profile.errorCode === 'email_not_verified') {
       sessionStorage.setItem('cc_pending_verification_email', user.email || '');
       window.location.replace('/verify-email.html');
       return null;
     }
 
     if (profile && profile.errorStatus) {
-      renderGateError(
-        loadingGate,
+      const errorTitle =
         profile.errorCode === 'schema_not_initialized'
           ? 'Database Setup Required'
-          : 'Workspace Connection Issue',
+          : profile.errorCode === 'supabase_key_error' || profile.errorCode === 'supabase_key_misconfigured'
+            ? 'Authentication Key Configuration Issue'
+            : profile.errorCode === 'profile_initialization_failed'
+              ? 'Profile Initialization Issue'
+              : profile.errorStatus === 403
+                ? 'Account Access Restricted'
+                : 'Workspace Connection Issue';
+      renderGateError(
+        loadingGate,
+        errorTitle,
         profile.message ||
           'We verified your identity, but could not load your workspace profile from the backend service.'
       );

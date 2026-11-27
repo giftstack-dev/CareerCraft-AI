@@ -44,13 +44,21 @@ class ValidationError(AppError):
 
 
 class RateLimitError(AppError):
-    def __init__(self, message: str = "Configured request limit reached. Please try again later.") -> None:
-        super().__init__(message=message, status_code=429, error_code="rate_limit_exceeded")
+    def __init__(
+        self,
+        message: str = "Configured request limit reached. Please try again later.",
+        error_code: str = "rate_limit_exceeded",
+    ) -> None:
+        super().__init__(message=message, status_code=429, error_code=error_code)
 
 
 class ServiceUnavailableError(AppError):
-    def __init__(self, message: str = "A required service is temporarily unavailable.") -> None:
-        super().__init__(message=message, status_code=503, error_code="service_unavailable")
+    def __init__(
+        self,
+        message: str = "A required service is temporarily unavailable.",
+        error_code: str = "service_unavailable",
+    ) -> None:
+        super().__init__(message=message, status_code=503, error_code=error_code)
 
 
 def success_response(

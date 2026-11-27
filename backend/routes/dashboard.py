@@ -13,7 +13,7 @@ from flask import Blueprint, current_app, g, request
 
 from services.gemini_service import GeminiService
 from services.profile_service import get_full_profile, handle_supabase_error
-from services.supabase_service import get_secret_client, get_user_client
+from services.supabase_service import check_supabase_sdk_compatibility, get_secret_client, get_user_client
 from utils.auth import require_auth
 from utils.errors import success_response
 
@@ -71,24 +71,45 @@ def _probe_supabase_jwks(cfg) -> dict[str, Any]:
 def _probe_supabase_database(cfg) -> dict[str, Any]:
     if not cfg.supabase_configured:
         return {"connected": False, "status": "unconfigured"}
+    compat = check_supabase_sdk_compatibility(cfg)
     try:
         client = get_secret_client()
         client.table("profiles").select("id").limit(1).execute()
-        return {"connected": True, "status": "connected", "schema_ready": True}
+        return {
+            "connected": True,
+            "status": "connected",
+            "schema_ready": True,
+            "sdk_version": compat["sdk_version"],
+            "sdk_compatible": compat["sdk_compatible"],
+        }
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
-        if "PGRST205" in msg or "schema cache" in msg.lower() or "does not exist" in msg.lower():
+        lower = msg.lower()
+        if "pgrst205" in lower or "schema cache" in lower or "does not exist" in lower:
             return {
                 "connected": False,
                 "status": "schema_not_initialized",
                 "schema_ready": False,
                 "error_code": "PGRST205",
+                "sdk_version": compat["sdk_version"],
+                "sdk_compatible": compat["sdk_compatible"],
+            }
+        if "invalid api key" in lower or "apikey" in lower or "pgrst301" in lower:
+            return {
+                "connected": False,
+                "status": "key_or_sdk_error",
+                "schema_ready": False,
+                "error_code": "supabase_key_error",
+                "sdk_version": compat["sdk_version"],
+                "sdk_compatible": compat["sdk_compatible"],
             }
         return {
             "connected": False,
             "status": "error",
             "schema_ready": False,
             "error_type": type(exc).__name__,
+            "sdk_version": compat["sdk_version"],
+            "sdk_compatible": compat["sdk_compatible"],
         }
 
 
