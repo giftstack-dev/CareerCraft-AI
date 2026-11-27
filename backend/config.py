@@ -46,8 +46,8 @@ class Config:
     )
     GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", "").strip())
     GEMINI_MODEL: str = field(
-        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
-        or "gemini-2.5-flash"
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        or "gemini-3.8-flash"
     )
     FRONTEND_URL: str = field(
         default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3000").strip()

@@ -167,6 +167,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    const isFailed = selectedCv.parsing_status === 'failed';
+    const actionLabel = isFailed
+      ? 'Retry AI Extraction'
+      : parsed
+        ? 'Re-parse with AI'
+        : 'Parse with AI';
+
     const topBar = el('div', { style: 'display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;' }, [
       el('div', {}, [
         el('strong', { textContent: selectedCv.original_filename }),
@@ -175,7 +182,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       el('button', {
         type: 'button',
         className: 'btn btn-primary btn-sm',
-        textContent: parsed ? 'Re-parse with AI' : 'Parse with AI',
+        textContent: actionLabel,
         onClick: async (e) => {
           const btn = e.currentTarget;
           if (btn.disabled) return;
@@ -195,6 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               },
             });
             if (!res.success) {
+              await loadHistory(selectedCv.id);
               showAlert(alertBox, res.message || 'AI parsing failed.', 'error');
               return;
             }
@@ -202,22 +210,33 @@ document.addEventListener('DOMContentLoaded', async () => {
             await loadHistory(selectedCv.id);
           } finally {
             btn.disabled = false;
-            btn.textContent = parsed ? 'Re-parse with AI' : 'Parse with AI';
+            btn.textContent = actionLabel;
           }
         },
       }),
     ]);
     reviewPanel.appendChild(topBar);
 
-    if (!parsed) {
+    if (isFailed) {
       reviewPanel.appendChild(
-        el('div', { className: 'empty-state' }, [
-          el('p', {
-            className: 'card-text',
-            textContent: 'Click "Parse with AI" above to extract structured sections (experience, education, skills, projects, certifications) for your confirmation.',
-          }),
+        el('div', { className: 'alert alert-error', style: 'margin-bottom: 1rem;' }, [
+          el('strong', { textContent: 'Previous AI extraction failed: ' }),
+          'Your uploaded CV is safely saved in private storage. Click "Retry AI Extraction" above to run extraction again without re-uploading.',
         ])
       );
+    }
+
+    if (!parsed) {
+      if (!isFailed) {
+        reviewPanel.appendChild(
+          el('div', { className: 'empty-state' }, [
+            el('p', {
+              className: 'card-text',
+              textContent: 'Click "Parse with AI" above to extract structured sections (experience, education, skills, projects, certifications) for your confirmation.',
+            }),
+          ])
+        );
+      }
       return;
     }
 

@@ -8,12 +8,13 @@ from typing import Any
 from flask import Blueprint, current_app, g, request
 from pydantic import BaseModel, Field
 
+from services.gemini_diagnostics import MalformedAIResponseError, parse_structured_json
 from services.gemini_service import GeminiService
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
 from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
-from utils.errors import NotFoundError, ValidationError, success_response
+from utils.errors import NotFoundError, ServiceUnavailableError, ValidationError, success_response
 from utils.validators import is_valid_uuid
 
 jobs_bp = Blueprint("jobs", __name__, url_prefix="/api/jobs")
@@ -288,7 +289,15 @@ def run_job_analysis_for_opportunity(
             user_payload=user_payload,
             response_schema=JobAnalysisSchema,
         )
-        structured = json.loads(res["text"])
+        structured = res.get("parsed")
+        if structured is None:
+            try:
+                structured = parse_structured_json(res.get("text"), finish_reason=res.get("finish_reason", ""))
+            except MalformedAIResponseError as exc:
+                raise ServiceUnavailableError(
+                    "The AI service returned an unreadable job analysis response. Please try again shortly.",
+                    error_code="ai_malformed_response",
+                ) from exc
 
         opp_updates: dict[str, Any] = {}
         if not job_row.get("job_title") and structured.get("job_title"):
@@ -386,7 +395,15 @@ def run_compatibility_for_opportunity(
             user_payload=payload_text,
             response_schema=CompatibilitySchema,
         )
-        compat = json.loads(res["text"])
+        compat = res.get("parsed")
+        if compat is None:
+            try:
+                compat = parse_structured_json(res.get("text"), finish_reason=res.get("finish_reason", ""))
+            except MalformedAIResponseError as exc:
+                raise ServiceUnavailableError(
+                    "The AI service returned an unreadable compatibility response. Please try again shortly.",
+                    error_code="ai_malformed_response",
+                ) from exc
         compat["disclaimer"] = (
             "Alignment reflects overlap between your confirmed profile records and the pasted job description. "
             "It is not a hiring probability or a guarantee of ATS or interview selection."

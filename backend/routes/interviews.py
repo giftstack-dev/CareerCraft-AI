@@ -9,12 +9,13 @@ from flask import Blueprint, current_app, g, request
 from pydantic import BaseModel, Field
 
 from routes.jobs import _summarize_confirmed_profile
+from services.gemini_diagnostics import MalformedAIResponseError, parse_structured_json
 from services.gemini_service import GeminiService
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
 from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
-from utils.errors import NotFoundError, ValidationError, success_response
+from utils.errors import NotFoundError, ServiceUnavailableError, ValidationError, success_response
 from utils.validators import is_valid_uuid
 
 interviews_bp = Blueprint("interviews", __name__, url_prefix="/api/interviews")
@@ -128,7 +129,15 @@ def generate_interview_prep():
             user_payload=user_payload,
             response_schema=InterviewPrepSchema,
         )
-        structured = json.loads(res["text"])
+        structured = res.get("parsed")
+        if structured is None:
+            try:
+                structured = parse_structured_json(res.get("text"), finish_reason=res.get("finish_reason", ""))
+            except MalformedAIResponseError as exc:
+                raise ServiceUnavailableError(
+                    "The AI service returned an unreadable interview preparation response. Please try again shortly.",
+                    error_code="ai_malformed_response",
+                ) from exc
         questions = _flatten_questions(structured)
 
         inserted = client.table("interview_sessions").insert(

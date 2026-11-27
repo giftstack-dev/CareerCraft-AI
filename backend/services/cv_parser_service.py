@@ -10,8 +10,9 @@ import docx
 import fitz  # PyMuPDF
 from pydantic import BaseModel, Field
 
+from services.gemini_diagnostics import MalformedAIResponseError, parse_structured_json
 from services.gemini_service import GeminiService
-from utils.errors import ValidationError
+from utils.errors import ServiceUnavailableError, ValidationError
 
 PDF_MIME = "application/pdf"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -211,5 +212,13 @@ def parse_cv_text_with_gemini(raw_text: str) -> tuple[dict[str, Any], Any]:
         user_payload=f"<UNTRUSTED_CV_TEXT>\n{raw_text[:35000]}\n</UNTRUSTED_CV_TEXT>",
         response_schema=ParsedCVSchema,
     )
-    parsed = json.loads(res["text"])
+    parsed = res.get("parsed")
+    if parsed is None:
+        try:
+            parsed = parse_structured_json(res.get("text"), finish_reason=res.get("finish_reason", ""))
+        except MalformedAIResponseError as exc:
+            raise ServiceUnavailableError(
+                "The AI service returned an incomplete or unreadable response while parsing your CV. Please retry extraction.",
+                error_code="ai_malformed_response",
+            ) from exc
     return parsed, res.get("usage")

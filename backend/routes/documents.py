@@ -14,13 +14,14 @@ from routes.jobs import (
     run_job_analysis_for_opportunity,
 )
 from services.document_export_service import render_document_docx, render_document_pdf
+from services.gemini_diagnostics import MalformedAIResponseError, parse_structured_json
 from services.gemini_service import GeminiService
 from services.grounding_service import verify_document_grounding
 from services.profile_service import get_full_profile, handle_supabase_error, record_notification
 from services.supabase_service import get_user_client
 from services.usage_service import enforce_daily_ai_quota, record_usage
 from utils.auth import require_auth
-from utils.errors import AppError, NotFoundError, RateLimitError, ValidationError, success_response
+from utils.errors import AppError, NotFoundError, RateLimitError, ServiceUnavailableError, ValidationError, success_response
 from utils.security import sanitize_filename
 from utils.validators import is_valid_uuid
 
@@ -257,7 +258,15 @@ def generate_documents():
                 user_payload=json.dumps(prompt_data, ensure_ascii=False),
                 response_schema=GeneratedDocContentSchema,
             )
-            generated = json.loads(res["text"])
+            generated = res.get("parsed")
+            if generated is None:
+                try:
+                    generated = parse_structured_json(res.get("text"), finish_reason=res.get("finish_reason", ""))
+                except MalformedAIResponseError as exc:
+                    raise ServiceUnavailableError(
+                        "The AI service returned an unreadable document draft. Please try again shortly.",
+                        error_code="ai_malformed_response",
+                    ) from exc
             prof = profile_bundle.get("profile") or {}
 
             # Ensure header retains verified user contact fields

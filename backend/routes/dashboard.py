@@ -122,7 +122,10 @@ def _probe_gemini_api(cfg, run_generation_check: bool = True) -> dict[str, Any]:
             model=cfg.GEMINI_MODEL,
             timeout_seconds=cfg.AI_REQUEST_TIMEOUT,
         )
-        return service.verify_connectivity(run_generation_check=run_generation_check)
+        return service.verify_connectivity(
+            run_generation_check=run_generation_check,
+            include_diagnostics=False,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Gemini probe raised unexpected error safely: %s", type(exc).__name__)
         return {
