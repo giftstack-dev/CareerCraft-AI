@@ -196,7 +196,7 @@ def health_connectivity():
     """Verify actual live connectivity to Supabase Auth, JWKS, PostgreSQL, and Gemini API."""
     cfg = current_app.config["APP_CONFIG"]
     run_gen = request.args.get("mode", "full").strip().lower() != "light"
-    live = run_live_connectivity_checks(cfg, run_generation_check=run_gen)
+    live = run_live_connectivity_checks(cfg, run_gemini_generation=run_gen)
     return success_response(
         data={
             "status": live["overall_status"],
